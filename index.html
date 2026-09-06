@@ -116,7 +116,15 @@
             <label class="check-row"><input type="checkbox" id="filter-passenger-only" /> Passenger lines only</label>
             <label class="check-row"><input type="checkbox" id="filter-stracnet" /> STRACNET only</label>
             <div class="select-row">
-              <label>State focus</label>
+              <label>Major city transit</label>
+              <select id="city-focus">
+                <option value="">Select city…</option>
+              </select>
+              <div id="city-chips" class="city-chips"></div>
+              <p id="city-systems" class="hint" style="margin-top:0.35rem"></p>
+              <button type="button" id="btn-reset-filters" class="btn-reset-filters">Reset filters</button>
+
+              <label style="margin-top:0.75rem;display:block">State focus</label>
               <select id="state-filter">
                 <option value="">All States</option>
                 <option value="CA">California</option>

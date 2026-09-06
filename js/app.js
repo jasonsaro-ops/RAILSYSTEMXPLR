@@ -35,6 +35,7 @@
     initBasemaps();
     initLayerControls();
     initSearch();
+    initCityFocus();
     initMetaWindow();
     bindUI();
 
@@ -442,7 +443,7 @@
       });
 
       // Re-apply owner filter visibility on cached layers
-      applyOwnerFilter();
+      applyRailVisibility();
 
       const mode = forceClass1 ? "Class I system map" : "Full NARN";
       toast(`${mode}: +${added} new / ${state.railCache.size} cached`, "success");
@@ -1042,7 +1043,84 @@
   }
 
   // ---------- Search ----------
-  function initSearch() {
+  
+  function initCityFocus() {
+    const sel = document.getElementById("city-focus");
+    const chips = document.getElementById("city-chips");
+    const sys = document.getElementById("city-systems");
+    if (!sel || !CONFIG.CITY_PRESETS) return;
+    CONFIG.CITY_PRESETS.forEach((c) => {
+      const opt = document.createElement("option");
+      opt.value = c.id;
+      opt.textContent = c.name;
+      sel.appendChild(opt);
+    });
+    const quick = ["nyc", "chi", "phi", "bos", "dc", "sf", "la"];
+    quick.forEach((id) => {
+      const c = CONFIG.CITY_PRESETS.find((x) => x.id === id);
+      if (!c || !chips) return;
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "chip";
+      b.textContent = c.name.split(" ")[0];
+      b.addEventListener("click", () => flyToCity(c.id));
+      chips.appendChild(b);
+    });
+    sel.addEventListener("change", () => flyToCity(sel.value));
+    const resetBtn = document.getElementById("btn-reset-filters");
+    if (resetBtn) resetBtn.addEventListener("click", resetAllFilters);
+  }
+
+  function flyToCity(id) {
+    const c = (CONFIG.CITY_PRESETS || []).find((x) => x.id === id);
+    if (!c) return;
+    const sel = document.getElementById("city-focus");
+    if (sel) sel.value = id;
+    const sys = document.getElementById("city-systems");
+    if (sys) sys.textContent = c.systems || "";
+    // enable transit-related layers
+    ["transitRoutes", "transitStops", "amtrakStations", "passengerLines"].forEach((key) => {
+      const el = document.querySelector(`input[data-layer="${key}"]`);
+      if (el && !el.checked) {
+        el.checked = true;
+        el.dispatchEvent(new Event("change"));
+      }
+    });
+    state.map.fitBounds(
+      [
+        [c.south, c.west],
+        [c.north, c.east],
+      ],
+      { padding: [40, 40], maxZoom: 13, animate: true }
+    );
+    toast(c.name + " — " + (c.systems || "transit"), "success");
+    setTimeout(() => {
+      if (typeof loadTransitRoutes === "function") loadTransitRoutes();
+      if (typeof loadTransitStops === "function") loadTransitStops();
+      if (typeof loadAmtrakStations === "function") loadAmtrakStations();
+      if (typeof loadPassengerLines === "function") loadPassengerLines();
+    }, 600);
+  }
+
+  function resetAllFilters() {
+    document.querySelectorAll("input[data-layer]").forEach((el) => {
+      const on = ["bnsf", "up", "csx", "ns", "cn", "cpkc", "amtrak", "other", "trains", "cameras", "class1only", "amtrakStations"].includes(el.dataset.layer);
+      el.checked = on;
+    });
+    const pass = document.getElementById("filter-passenger-only");
+    if (pass) pass.checked = false;
+    const city = document.getElementById("city-focus");
+    if (city) city.value = "";
+    const sys = document.getElementById("city-systems");
+    if (sys) sys.textContent = "";
+    const st = document.getElementById("state-focus");
+    if (st) st.value = "";
+    state.map.setView(CONFIG.DEFAULT_CENTER, CONFIG.DEFAULT_ZOOM);
+    toast("Filters reset", "success");
+    if (typeof loadRailsForView === "function") loadRailsForView();
+  }
+
+function initSearch() {
     const input = document.getElementById("global-search");
     const results = document.getElementById("search-results");
     let debounce;

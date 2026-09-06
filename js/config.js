@@ -96,4 +96,18 @@ const CONFIG = {
   // Default map view (continental US)
   DEFAULT_CENTER: [39.5, -98.35],
   DEFAULT_ZOOM: 5,
+
+  CITY_PRESETS: [
+    { id: "nyc", name: "New York City", west: -74.28, south: 40.48, east: -73.68, north: 40.95, systems: "MTA Subway · LIRR · Metro-North · NJT" },
+    { id: "chi", name: "Chicago", west: -88.0, south: 41.6, east: -87.4, north: 42.1, systems: "CTA · Metra" },
+    { id: "phi", name: "Philadelphia", west: -75.35, south: 39.85, east: -74.95, north: 40.15, systems: "SEPTA · PATCO" },
+    { id: "bos", name: "Boston", west: -71.25, south: 42.2, east: -70.9, north: 42.45, systems: "MBTA" },
+    { id: "dc", name: "Washington DC", west: -77.25, south: 38.8, east: -76.85, north: 39.05, systems: "WMATA · VRE · MARC" },
+    { id: "sf", name: "San Francisco Bay", west: -122.55, south: 37.45, east: -121.85, north: 37.95, systems: "BART · Muni · Caltrain" },
+    { id: "la", name: "Los Angeles", west: -118.55, south: 33.85, east: -117.85, north: 34.25, systems: "Metro · Metrolink" },
+    { id: "sea", name: "Seattle", west: -122.45, south: 47.45, east: -122.15, north: 47.75, systems: "Link · Sounder" },
+    { id: "atl", name: "Atlanta", west: -84.55, south: 33.65, east: -84.25, north: 33.9, systems: "MARTA" },
+    { id: "den", name: "Denver", west: -105.15, south: 39.6, east: -104.8, north: 39.85, systems: "RTD" },
+    { id: "mia", name: "Miami", west: -80.4, south: 25.7, east: -80.1, north: 26.0, systems: "Metrorail · Tri-Rail" },
+  ],
 };

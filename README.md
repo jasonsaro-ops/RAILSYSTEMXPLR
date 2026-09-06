@@ -1,82 +1,62 @@
-# RailSystemXplr — US Railroad Network Explorer
+# RailSystemXplr
 
-Professional, professional railroad network explorer for the **United States railroad network**.
+US Railroad Network Explorer — mission-style ops map for Class I freight, short lines, Amtrak, and city transit (NYC subway, Metra, SEPTA, etc.).
 
-Built for GitHub Pages hosting under `jasonsaro-ops`.
+**GitHub user:** `jasonsaro-ops` · **Repo:** `RailSystemXplr`
 
-## Features
+## What’s in this repo
 
-- **Full national rail network** from the official FRA / BTS **North American Rail Network (NARN)**
-- **Layer controls** for every major Class I railroad:
-  - BNSF · Union Pacific · CSX · Norfolk Southern · Canadian National · CPKC
-  - Amtrak / passenger · Class II / III / shortlines
-- **Infrastructure layers** (on-demand): rail yards, grade crossings, network nodes
-- **Near-real-time passenger trains** (Amtrak, Brightline, Via Rail) via the public Amtraker API
-- Auto-refresh every **2 minutes**
-- Click any rail segment or train → floating metadata window
-- Global search (train number / route name)
-- State focus filter + fly-to
-- Dark ops basemap (no API key), street-level OSM, and satellite
-- Fully static — works on GitHub Pages
+| Path | Description |
+|------|-------------|
+| **Root** (`index.html`, `css/`, `js/`) | **Static Leaflet app** — open or deploy to GitHub Pages with no build step |
+| **`typescript-app/`** | Vite + React + TypeScript + MapLibre redesign (PowerGrid-style caching, NTM city presets) |
 
-## Important data notes
+## Quick start (GitHub Pages — static)
 
-| Data | Source | Real-time? |
-|------|--------|------------|
-| Rail lines, ownership, trackage rights, passenger flag, STRACNET | FRA / BTS NARN | Static (updated by FRA) |
-| Rail yards, grade crossings, nodes | FRA / BTS NTAD | Static |
-| Amtrak / Brightline / Via train positions | Amtraker community API | Near real-time (~minutes) |
-| Freight train positions (BNSF, NS, CSX, UP, etc.) | **Not publicly available** | Proprietary |
+1. Create repo **RailSystemXplr** under `jasonsaro-ops`.
+2. Upload **all files from this package** to the repo root (not inside an extra folder).
+3. **Settings → Pages → Deploy from branch** `main` / `/ (root)`.
+4. Site URL: `https://jasonsaro-ops.github.io/RailSystemXplr/`
 
-Speed restrictions, live track cameras, and precise out-of-service status are not published in open federal feeds at national scale. The dashboard surfaces every attribute the NARN provides.
-
-## Quick start (local)
+Or with git:
 
 ```bash
-# any static server
-npx serve .
-# or
-python -m http.server 8080
-```
-
-Open `http://localhost:8080`.
-
-## Deploy to GitHub Pages
-
-1. Create a new repository (e.g. `RailSystemXplr`) under **jasonsaro-ops**.
-2. Push the contents of this folder to the `main` branch (or `gh-pages`).
-3. In repo Settings → Pages → Source: Deploy from branch → `main` / root (or `/docs` if you prefer).
-4. Site will be live at `https://jasonsaro-ops.github.io/RailSystemXplr/`.
-
-```bash
+unzip RailSystemXplr-github.zip
+cd RailSystemXplr-github   # or rename folder to RailSystemXplr
 git init
 git add .
-git commit -m "Initial RailSystemXplr dashboard"
+git commit -m "Initial RailSystemXplr"
 git branch -M main
 git remote add origin https://github.com/jasonsaro-ops/RailSystemXplr.git
 git push -u origin main
 ```
 
-## Architecture
+## TypeScript app (optional)
 
-- Pure HTML / CSS / vanilla JS + Leaflet
-- No build step, no API keys required for core function
-- Viewport-driven queries against ArcGIS FeatureServer (max ~2000 features per request)
-- PreferCanvas rendering for dense rail geometry
+```bash
+cd typescript-app
+npm install
+npm run dev      # local
+npm run build    # output in typescript-app/dist
+```
 
-## Attribution
+`vite.config.ts` uses `base: '/RailSystemXplr/'` for Pages if you later publish the built `dist/` instead of the static root.
 
-- North American Rail Network: Federal Railroad Administration & Bureau of Transportation Statistics (public domain U.S. Government work)
-- Train positions: [Amtraker](https://amtraker.com) (community project — please attribute)
-- Basemaps: OpenStreetMap, CARTO, Esri
+## Features
 
-## Roadmap ideas (future)
+- Class I freight layers (BNSF, UP, CSX, NS, CN, CPKC) + full NARN
+- National Transit Map — subway / light rail / commuter / bus
+- **Major city presets** (NYC, Chicago, Philly, Boston, DC, SF, LA, …)
+- Amtrak stations + live Amtrak-family trains (Amtraker)
+- Yards, grade crossings, nodes, bridges, mileposts
+- Live railcams (YouTube embeds)
+- Search, state focus, **Reset filters**
+- Dark Ops basemap (Esri) — no API key
 
-- Vector tile or PMTiles version of NARN for nationwide smooth zoom
-- GTFS-RT integration for additional commuter systems
-- Saved views / bookmark presets for EOC consoles
-- Optional paid freight AIS-style feeds if a commercial key is supplied
+## Data sources (public)
 
----
+BTS/FRA NTAD (NARN, yards, crossings, bridges, mileposts, Amtrak stations), BTS National Transit Map (GTFS), Amtraker. Private railroad wayside devices and live freight positions are not published as open GIS.
 
-**Not an official FRA or railroad system.** For operational decision-making always verify with primary railroad or FRA sources.
+## License
+
+Public domain government data layers as provided by BTS/FRA. App code provided for use in your GitHub project.
