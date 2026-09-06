@@ -26,7 +26,7 @@
       transitBus: L.layerGroup(),
       passengerLines: L.layerGroup(),
     },
-    useClass1Only: true,
+    useClass1Only: false,
     basemaps: {},
     activeBasemap: "dark",
     railCache: new Map(), // key = feature OBJECTID → layer
@@ -200,6 +200,9 @@
           } else state.map.removeLayer(state.layers.cameras);
         } else if (key === "class1only") {
           state.useClass1Only = el.checked;
+          // Clear cache so next load uses correct endpoint coverage
+          state.railCache.forEach((lyr) => state.layers.rails.removeLayer(lyr));
+          state.railCache.clear();
           loadRailsForView();
         } else if (key === "yards") {
           if (el.checked) {
@@ -316,20 +319,28 @@
   function classifyOwner(props) {
     const candidates = [
       props.RROWNER1, props.RROWNER2, props.RROWNER3,
+      props.TRKRGHTS1, props.TRKRGHTS2, props.TRKRGHTS3,
       props.rrowner1, props.rrowner2, props.rrowner3,
-      props.OWNER, props.owner, props.RR,
+      props.OWNER, props.owner, props.RR, props.RROWNER,
     ].filter(Boolean).map((s) => String(s).toUpperCase().trim());
 
+    const match = (c) => {
+      // Order matters — more specific first
+      if (c === "BNSF" || c.includes("BNSF") || c === "BN" || c === "BNS") return "bnsf";
+      if (c === "CSXT" || c === "CSX" || c.includes("CSX")) return "csx";
+      if (c === "NS" || c === "NW" || c.includes("NORFOLK")) return "ns";
+      if (c === "UP" || c === "UPRR" || c === "SP" || c === "DRGW") return "up";
+      if (c.startsWith("UP ") || c.endsWith(" UP") || c.includes("UNION PACIFIC")) return "up";
+      if (c === "CN" || c === "GTW" || c === "IC" || c === "WC" || c.includes("CANADIAN NATIONAL")) return "cn";
+      if (c === "CPKC" || c === "CP" || c === "CPRS" || c === "KCS" || c === "KCSM" || c.includes("CPKC")) return "cpkc";
+      if (c === "ATK" || c === "AMTK" || c === "NRC" || c.includes("AMTRAK")) return "amtrak";
+      return null;
+    };
+
     for (const c of candidates) {
-      if (c.includes("BNSF") || c === "BN") return "bnsf";
-      if (c.includes("UP") || c === "UPRR") return "up";
-      if (c.includes("CSX") || c === "CSXT") return "csx";
-      if (c === "NS" || c.includes("NORFOLK")) return "ns";
-      if (c === "CN" || c.includes("CANADIAN NATIONAL") || c === "GTW" || c === "IC") return "cn";
-      if (c.includes("CPKC") || c === "CP" || c === "CPRS" || c === "KCS" || c === "KCSM") return "cpkc";
-      if (c.includes("AMTRAK") || c === "ATK" || c === "AMTK" || c === "NRC") return "amtrak";
+      const hit = match(c);
+      if (hit) return hit;
     }
-    // Passenger flag can still mark Amtrak
     const pass = (props.PASSNGR || props.passngr || "").toString().toUpperCase();
     if (pass === "A" || pass === "B" || pass === "P") return "amtrak";
     return "other";
@@ -370,7 +381,8 @@
     // Zoom-aware strategy (ArcGIS maxRecordCount = 2000)
     // Low zoom → Class I official view + simplified geometry (full national system map)
     // Mid/high zoom → full NARN clipped to viewport
-    const forceClass1 = state.useClass1Only || zoom < 7;
+    // National overview: Class I system map. Local zoom: full NARN so shortlines + trackage rights appear.
+    const forceClass1 = zoom < 7 && state.useClass1Only;
     const endpoint = forceClass1 && CONFIG.CLASS1_LINES
       ? CONFIG.CLASS1_LINES
       : CONFIG.NARN_LINES;
@@ -406,7 +418,7 @@
         const params = new URLSearchParams({
           f: "geojson",
           where: "1=1",
-          outFields: "OBJECTID,RROWNER1,RROWNER2,RROWNER3,PASSNGR,STRACNET,TRACKS,YARDNAME,SUBDIV,MILES,STATEAB,FRAARCID",
+          outFields: "OBJECTID,RROWNER1,RROWNER2,RROWNER3,TRKRGHTS1,TRKRGHTS2,TRKRGHTS3,PASSNGR,STRACNET,TRACKS,YARDNAME,SUBDIV,MILES,STATEAB,FRAARCID",
           geometry: JSON.stringify(geom),
           geometryType: "esriGeometryEnvelope",
           inSR: "4326",
@@ -434,10 +446,9 @@
         return;
       }
 
-      const enabledOwners = getEnabledOwners();
       let added = 0;
 
-      // PowerGrid-style: keep previously loaded segments; only add new OBJECTIDs
+      // PowerGrid-style: cache ALL segments regardless of owner checkbox; visibility is filter-only
       allFeatures.forEach((feature) => {
         const oid = feature.properties?.OBJECTID ?? feature.properties?.FRAARCID;
         if (oid == null) return;
@@ -445,8 +456,6 @@
         if (state.railCache.has(key)) return;
 
         const cls = classifyOwner(feature.properties);
-        if (!enabledOwners.has(cls)) return;
-
         const layer = L.geoJSON(feature, {
           style: () => styleForOwner(cls, feature.properties, zoom),
           onEachFeature: (f, lyr) => {
