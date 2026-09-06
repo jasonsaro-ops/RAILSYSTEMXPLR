@@ -16,18 +16,18 @@ const RAILCAMS = [
   { id: "vrf-plantcity", name: "Plant City, FL — PTZ", lat: 28.0186, lon: -82.1126, railroad: "CSX", channel: "Virtual Railfan", yt: "IVSoVgGXDoU", note: "CSX Florida", free: true },
   { id: "vrf-folkston-fixed", name: "Folkston, GA — Fixed", lat: 30.8305, lon: -82.0098, railroad: "CSX / NS", channel: "Virtual Railfan", yt: "Vqhfy2IqDz0", note: "Folkston Funnel", free: true },
   { id: "vrf-folkston-ptz", name: "Folkston, GA — Turnout PTZ", lat: 30.8310, lon: -82.0105, railroad: "CSX / NS", channel: "Virtual Railfan", yt: "7DmivRg6FfQ", note: "Folkston Funnel PTZ", free: true },
-  { id: "vrf-stlouis-w", name: "St. Louis, MO — West PTZ", lat: 38.6270, lon: -90.1994, railroad: "UP / BNSF / NS", channel: "Virtual Railfan", yt: "9eqVB3JbJHc", note: "Gateway", free: true },
+  { id: "vrf-stlouis-w", name: "St. Louis, MO — West PTZ", lat: 38.6270, lon: -90.1994, railroad: "UP / BNSF / NS", channel: "Virtual Railfan", yt: "NXmFAhX_3vY", note: "Gateway", free: true },
   { id: "vrf-jesup-n", name: "Jesup, GA — North Fixed", lat: 31.6074, lon: -81.8854, railroad: "CSX", channel: "Virtual Railfan", yt: "g1GgLCfImSE", note: "Coastal GA", free: true },
   { id: "vrf-jesup-ptz", name: "Jesup, GA — PTZ", lat: 31.6080, lon: -81.8860, railroad: "CSX", channel: "Virtual Railfan", yt: "1AOrlYblQR8", note: "Coastal GA PTZ", free: true },
   { id: "vrf-seattle", name: "Seattle, WA — South Fixed", lat: 47.6062, lon: -122.3321, railroad: "BNSF / Amtrak", channel: "Virtual Railfan", yt: "K7ZUj82iPkU", note: "Pacific NW", free: true },
   { id: "vrf-elkhart", name: "Elkhart, IN — PTZ", lat: 41.6820, lon: -85.9767, railroad: "NS / CSX", channel: "Virtual Railfan", yt: "YR1PdWaSxgk", note: "Chicago East", free: true },
   { id: "vrf-deshler-d", name: "Deshler, OH — Diamond Fixed", lat: 41.2092, lon: -83.8991, railroad: "CSX / NS", channel: "Virtual Railfan", yt: "Y28qU7UsFko", note: "Classic diamond", free: true },
   { id: "vrf-deshler-ptz", name: "Deshler, OH — PTZ", lat: 41.2095, lon: -83.8995, railroad: "CSX / NS", channel: "Virtual Railfan", yt: "TjMwpB8JRw8", note: "Classic diamond PTZ", free: true },
-  { id: "vrf-rochelle", name: "Rochelle, IL — Railroad Park", lat: 41.9239, lon: -89.0687, railroad: "BNSF / UP", channel: "Virtual Railfan", yt: null, note: "Famous diamond — open VRF / RailStream streams", free: true },
-  { id: "vrf-fostoria", name: "Fostoria, OH — Iron Triangle", lat: 41.1570, lon: -83.4169, railroad: "CSX / NS", channel: "Virtual Railfan / RailStream", yt: null, note: "Iron Triangle", free: true },
-  { id: "vrf-laplata", name: "La Plata, MO", lat: 40.0231, lon: -92.4916, railroad: "BNSF", channel: "Virtual Railfan", yt: null, note: "Southern Transcon", free: true },
-  { id: "vrf-barstow", name: "Barstow, CA", lat: 34.8988, lon: -117.0228, railroad: "BNSF / UP", channel: "Virtual Railfan", yt: null, note: "Needles / Cajon", free: true },
-  { id: "vrf-galesburg", name: "Galesburg, IL", lat: 40.9478, lon: -90.3712, railroad: "BNSF", channel: "Virtual Railfan", yt: null, note: "BNSF hub", free: true },
+  { id: "vrf-rochelle", name: "Rochelle, IL — Railroad Park", lat: 41.9239, lon: -89.0687, railroad: "BNSF / UP", channel: "Virtual Railfan", yt: "LhNpn9L5ndM", note: "Famous diamond — open VRF / RailStream streams", free: true },
+  { id: "vrf-fostoria", name: "Fostoria, OH — Iron Triangle", lat: 41.1570, lon: -83.4169, railroad: "CSX / NS", channel: "Virtual Railfan / RailStream", yt: "05MkbHUuVNM", note: "Iron Triangle", free: true },
+  { id: "vrf-laplata", name: "La Plata, MO", lat: 40.0231, lon: -92.4916, railroad: "BNSF", channel: "Virtual Railfan", yt: "iz9IQhp_fu0", note: "Southern Transcon", free: true },
+  { id: "vrf-barstow", name: "Barstow, CA", lat: 34.8988, lon: -117.0228, railroad: "BNSF / UP", channel: "Virtual Railfan", yt: "_DUQnPjPC_8", note: "Needles / Cajon", free: true },
+  { id: "vrf-galesburg", name: "Galesburg, IL", lat: 40.9478, lon: -90.3712, railroad: "BNSF", channel: "Virtual Railfan", yt: "On1MRt0NqFs", note: "BNSF hub", free: true },
 
   // Railside Live
   { id: "rsl-newlondon", name: "New London, CT", lat: 41.3556, lon: -72.0995, railroad: "Amtrak NEC / SLE / P&W", channel: "Railside Live", yt: "Chsnu4QybCM", note: "NEC · Maritime Society", free: true },
@@ -37,10 +37,13 @@ const RAILCAMS = [
   { id: "rsl-cozad", name: "Cozad, NE", lat: 40.8600, lon: -99.9876, railroad: "UP", channel: "Railside Live", yt: "ePdG9zr-MzY", note: "UP Overland · former depot", free: true },
 
   // Iron Rail Cams
-  { id: "irc-bridgeport", name: "Bridgeport, AL — Depot Museum", lat: 34.9473, lon: -85.7141, railroad: "CSX / NS / Sequatchie Valley", channel: "Iron Rail Cams", yt: "qRZ5E7U7h9Y", note: "CSX Chattanooga Sub", free: true },
-  { id: "irc-phoenixville", name: "Phoenixville, PA", lat: 40.1304, lon: -75.5149, railroad: "NS", channel: "Iron Rail Cams", yt: null, note: "Open Iron Rail Cams channel for live ID", free: true },
-  { id: "irc-corinth", name: "Corinth, MS", lat: 34.9343, lon: -88.5220, railroad: "NS / CPKC", channel: "Iron Rail Cams", yt: null, note: "Open channel for live ID", free: true },
-  { id: "irc-stevenson", name: "Stevenson, AL", lat: 34.8687, lon: -85.8394, railroad: "NS", channel: "Iron Rail Cams", yt: null, note: "Open channel for live ID", free: true },
+  { id: "irc-bridgeport", name: "Bridgeport, AL — Depot Museum", lat: 34.9473, lon: -85.7141, railroad: "CSX / NS / Sequatchie Valley", channel: "Iron Rail Cams", yt: "UJ_xlqKDXOA", note: "CSX Chattanooga Sub", free: true },
+  { id: "irc-phoenixville", name: "Phoenixville, PA — NS Harrisburg Line", lat: 40.1304, lon: -75.5149, railroad: "NS", channel: "Iron Rail Cams", yt: "F1lNwIEAXJU", note: "Open Iron Rail Cams channel for live ID", free: true },
+  { id: "irc-corinth", name: "Corinth, MS", lat: 34.9343, lon: -88.5220, railroad: "NS / CPKC", channel: "Iron Rail Cams", yt: "s1j4VctQDMk", note: "Open channel for live ID", free: true },
+  { id: "irc-stevenson", name: "Stevenson, AL", lat: 34.8687, lon: -85.8394, railroad: "NS", channel: "Iron Rail Cams", yt: "afcrxCV3kq0", note: "Open channel for live ID", free: true },
+  { id: "irc-newalbany", name: "New Albany, MS — BNSF Birmingham Sub", lat: 34.4943, lon: -89.0078, railroad: "BNSF", channel: "Iron Rail Cams", yt: "ekM9AuFOB8A", note: "BNSF Birmingham Sub", free: true },
+  { id: "irc-cowan", name: "Cowan, TN — Railroad Museum", lat: 35.1645, lon: -86.0105, railroad: "NS", channel: "Iron Rail Cams", yt: "4DkMy1__nV4", note: "Cowan Railroad Museum", free: true },
+  { id: "irc-bridgeport-bridge", name: "Bridgeport, AL — TN River Bridge", lat: 34.9480, lon: -85.7200, railroad: "CSX / NS", channel: "Iron Rail Cams", yt: "oSVroy5lN30", note: "Tennessee River bridge", free: true },
 
   // SouthWest RailCams
   { id: "swrc-granby", name: "Granby, CO — Moffat Tunnel Sub", lat: 40.0861, lon: -105.9392, railroad: "UP / Amtrak", channel: "SouthWest RailCams", yt: "azr-_DtCHl4", note: "Moffat Tunnel Sub MP 75.7", free: true },
@@ -69,8 +72,11 @@ const RAILCAMS = [
   { id: "rs-durand", name: "Durand, MI — Depot", lat: 42.9120, lon: -83.9847, railroad: "CN / Amtrak", channel: "RailStream", yt: "LnxHJ0ioERs", note: "Historic depot", free: true },
 
   // Channel hubs when no fixed ID
-  { id: "rbmn-hub", name: "Reading & Northern (RBMN)", lat: 40.6500, lon: -76.0000, railroad: "RBMN", channel: "RBMN", yt: null, note: "Open youtube.com/@RBMN for current live streams", free: true },
-  { id: "olt-hub", name: "Official Live Trains network", lat: 39.8283, lon: -98.5795, railroad: "Various", channel: "Official Live Trains", yt: null, note: "Open youtube.com/@OfficialLiveTrains/streams", free: true },
+  { id: "rbmn-hub", name: "Reading & Northern (RBMN)", lat: 40.6500, lon: -76.0000, railroad: "RBMN", channel: "RBMN", yt: "Ss7PD5Bxvew", note: "Open youtube.com/@RBMN for current live streams", free: true },
+  { id: "olt-hub", name: "Houston, TX — TNO Jct (Official Live Trains)", lat: 39.8283, lon: -98.5795, railroad: "Various", channel: "Official Live Trains", yt: "1xnW0pXEArs", note: "Official Live Trains · also see channel for Essex MT, Caliente NV, St Louis, Hummelstown PA", free: true },,
+  { id: "olt-stlouis", name: "St. Louis, MO — PTZ (Official Live Trains)", lat: 38.6270, lon: -90.1994, railroad: "UP / BNSF / NS / Amtrak", channel: "Official Live Trains", yt: "NXmFAhX_3vY", note: "LIVE Trains St Louis PTZ", free: true },
+  { id: "olt-hummelstown", name: "Hummelstown, PA (Official Live Trains)", lat: 40.2654, lon: -76.7083, railroad: "NS", channel: "Official Live Trains", yt: "ecrEy4BMf-o", note: "NS Harrisburg Line", free: true },
+  { id: "olt-caliente", name: "Caliente, NV — Depot (Official Live Trains)", lat: 37.6147, lon: -114.5119, railroad: "UP", channel: "Official Live Trains", yt: "4nwnbVcNiKA", note: "UP mainline", free: true }
 ];
 
 const CAMERA_CHANNELS = [

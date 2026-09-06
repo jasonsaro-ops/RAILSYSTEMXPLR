@@ -727,3 +727,17 @@ html, body {
 .resources h2 {
   margin-bottom: 0.5rem;
 }
+
+/* Map tooltips for infrastructure labels */
+.leaflet-tooltip.rsx-tip {
+  background: rgba(10, 14, 20, 0.92);
+  border: 1px solid rgba(0, 212, 170, 0.35);
+  color: #e8eef6;
+  border-radius: 6px;
+  font-size: 11px;
+  padding: 4px 8px;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.45);
+}
+.leaflet-tooltip.rsx-tip::before {
+  border-top-color: rgba(10, 14, 20, 0.92);
+}

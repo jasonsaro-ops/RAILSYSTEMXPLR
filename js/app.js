@@ -19,8 +19,10 @@
     useClass1Only: true,
     basemaps: {},
     activeBasemap: "dark",
-    railCache: new Map(), // key = feature id → layer
+    railCache: new Map(), // key = feature OBJECTID → layer
+    pointCache: { nodes: new Map(), yards: new Map(), crossings: new Map() },
     trainMarkers: new Map(),
+    loadedTileKeys: new Set(), // rails viewport keys already fetched
     lastTrainData: null,
     lastRefresh: null,
     queryInFlight: false,
@@ -50,7 +52,16 @@
     let moveTimer;
     state.map.on("moveend", () => {
       clearTimeout(moveTimer);
-      moveTimer = setTimeout(loadRailsForView, 650);
+      moveTimer = setTimeout(() => {
+        loadRailsForView();
+        // Incremental infra loads (stay on map once loaded)
+        const y = document.querySelector('input[data-layer="yards"]');
+        const c = document.querySelector('input[data-layer="crossings"]');
+        const n = document.querySelector('input[data-layer="nodes"]');
+        if (y && y.checked) loadYards();
+        if (c && c.checked) loadCrossings();
+        if (n && n.checked) loadNodes();
+      }, 500);
     });
 
     state.map.on("zoomend", updateZoomLabel);
@@ -350,40 +361,47 @@
         if (geojson.features.length < CONFIG.MAX_RECORDS) break;
       }
 
-      state.layers.rails.clearLayers();
-      state.railCache.clear();
-
       if (!allFeatures.length) {
         toast("No rail segments in view", "error");
         return;
       }
 
       const enabledOwners = getEnabledOwners();
-      const fc = { type: "FeatureCollection", features: allFeatures };
+      let added = 0;
 
-      L.geoJSON(fc, {
-        style: (feature) => {
-          const cls = classifyOwner(feature.properties);
-          return styleForOwner(cls, feature.properties, zoom);
-        },
-        filter: (feature) => {
-          const cls = classifyOwner(feature.properties);
-          return enabledOwners.has(cls);
-        },
-        onEachFeature: (feature, layer) => {
-          layer._railProps = feature.properties;
-          layer.feature = feature;
-          layer.on("click", () => showRailMeta(feature.properties, layer.getBounds?.()));
-          layer.on("mouseover", () => layer.setStyle({ weight: Math.min(6, (layer.options.weight || 2) + 2), opacity: 1 }));
-          layer.on("mouseout", () => {
-            const cls = classifyOwner(feature.properties);
-            layer.setStyle(styleForOwner(cls, feature.properties, zoom));
-          });
-        },
-      }).addTo(state.layers.rails);
+      // PowerGrid-style: keep previously loaded segments; only add new OBJECTIDs
+      allFeatures.forEach((feature) => {
+        const oid = feature.properties?.OBJECTID ?? feature.properties?.FRAARCID;
+        if (oid == null) return;
+        const key = String(oid);
+        if (state.railCache.has(key)) return;
+
+        const cls = classifyOwner(feature.properties);
+        if (!enabledOwners.has(cls)) return;
+
+        const layer = L.geoJSON(feature, {
+          style: () => styleForOwner(cls, feature.properties, zoom),
+          onEachFeature: (f, lyr) => {
+            lyr._railProps = f.properties;
+            lyr.feature = f;
+            lyr.on("click", () => showRailMeta(f.properties, lyr.getBounds?.()));
+            lyr.on("mouseover", () => lyr.setStyle({ weight: Math.min(6, (lyr.options.weight || 2) + 2), opacity: 1 }));
+            lyr.on("mouseout", () => {
+              const c = classifyOwner(f.properties);
+              lyr.setStyle(styleForOwner(c, f.properties, zoom));
+            });
+          },
+        });
+        layer.addTo(state.layers.rails);
+        state.railCache.set(key, layer);
+        added++;
+      });
+
+      // Re-apply owner filter visibility on cached layers
+      applyOwnerFilter();
 
       const mode = forceClass1 ? "Class I system map" : "Full NARN";
-      toast(`${mode}: ${allFeatures.length} segments`, "success");
+      toast(`${mode}: +${added} new / ${state.railCache.size} cached`, "success");
     } catch (err) {
       console.error(err);
       toast("Rail network load error — " + (err.message || "see console"), "error");
@@ -456,24 +474,58 @@
 
   // ---------- Yards / Crossings / Nodes (on demand) ----------
   async function loadYards() {
-    await loadPointLayer(CONFIG.RAIL_YARDS, state.layers.yards, "yard", (p) => {
-      return p.NAME || p.YARDNAME || p.name || "Rail Yard";
-    });
+    await loadPointLayer(CONFIG.RAIL_YARDS, state.layers.yards, "yards", describeYard);
   }
 
   async function loadCrossings() {
-    await loadPointLayer(CONFIG.GRADE_CROSSINGS, state.layers.crossings, "crossing", (p) => {
-      return p.CROSSING || p.CrossingID || p.OBJECTID || "Grade Crossing";
-    });
+    await loadPointLayer(CONFIG.GRADE_CROSSINGS, state.layers.crossings, "crossings", describeCrossing);
   }
 
   async function loadNodes() {
-    await loadPointLayer(CONFIG.NARN_NODES, state.layers.nodes, "node", (p) => {
-      return p.NODE_ID || p.OBJECTID || "Network Node";
-    });
+    await loadPointLayer(CONFIG.NARN_NODES, state.layers.nodes, "nodes", describeNode);
   }
 
-  async function loadPointLayer(endpoint, layerGroup, type, titleFn) {
+  function featureKey(props, type) {
+    return String(
+      props.OBJECTID ?? props.FRANODEID ?? props.CrossingID ?? props.CROSSING ??
+      props.YARDNAME ?? props.NAME ?? Math.random()
+    ) + ":" + type;
+  }
+
+  function describeNode(p) {
+    const station = (p.PASSNGRSTN || "").toString().trim();
+    const pass = (p.PASSNGR || "").toString().toUpperCase();
+    const bndry = p.BNDRY;
+    const parts = [];
+    if (station) parts.push(station);
+    if (pass === "Y" || pass === "1" || pass === "A" || pass === "P") parts.push("Passenger station node");
+    else if (pass && pass !== "N" && pass !== "0") parts.push("Passenger flag: " + pass);
+    if (bndry === 1 || bndry === "1") parts.push("Network boundary node");
+    if (!parts.length) parts.push("Rail network junction / node");
+    return parts.join(" · ");
+  }
+
+  function describeCrossing(p) {
+    const street = p.STREET || p.Street || p.HIGHWAY || p.Highway || "";
+    const rr = p.RailroadCode || p.RAILROAD || p.Railroad || "";
+    const cid = p.CrossingID || p.CROSSING || "";
+    const bits = [];
+    if (street) bits.push(street);
+    if (rr) bits.push(rr);
+    if (cid) bits.push("Xing #" + cid);
+    return bits.length ? bits.join(" · ") : "Grade Crossing";
+  }
+
+  function describeYard(p) {
+    return p.NAME || p.YARDNAME || p.name || p.YardName || "Rail Yard";
+  }
+
+  async function loadPointLayer(endpoint, layerGroup, cacheKey, titleFn) {
+    // PowerGrid-style: keep already-loaded features; only fetch missing IDs for current viewport
+    if (state.map.getZoom() < 9 && cacheKey !== "yards") {
+      // Nodes/crossings dense — only show when reasonably zoomed
+      return;
+    }
     const bounds = state.map.getBounds();
     const geom = {
       xmin: bounds.getWest(),
@@ -482,61 +534,157 @@
       ymax: bounds.getNorth(),
       spatialReference: { wkid: 4326 },
     };
+    const outFields = cacheKey === "nodes"
+      ? "OBJECTID,FRANODEID,COUNTRY,STATE,STFIPS,CTYFIPS,STCYFIPS,FRADISTRCT,PASSNGR,PASSNGRSTN,BNDRY"
+      : "*";
     const params = new URLSearchParams({
       f: "geojson",
       where: "1=1",
-      outFields: "*",
+      outFields,
       geometry: JSON.stringify(geom),
       geometryType: "esriGeometryEnvelope",
       inSR: "4326",
       spatialRel: "esriSpatialRelIntersects",
       outSR: "4326",
-      resultRecordCount: "1500",
+      resultRecordCount: "2000",
     });
     try {
       const res = await fetch(`${endpoint}/query?${params}`);
       const geojson = await res.json();
-      layerGroup.clearLayers();
       if (!geojson.features) return;
-      L.geoJSON(geojson, {
-        pointToLayer: (feature, latlng) => {
-          if (type === "yard") {
-            return L.marker(latlng, {
-              icon: L.divIcon({
-                className: "rsx-marker-wrap",
-                html: `<div class="yard-marker" title="Yard">
-                  <svg viewBox="0 0 24 24" width="12" height="12"><rect x="3" y="8" width="18" height="10" rx="1" fill="currentColor" opacity="0.9"/><rect x="6" y="4" width="4" height="4" fill="currentColor"/><rect x="14" y="4" width="4" height="4" fill="currentColor"/></svg>
-                </div>`,
-                iconSize: [24, 24],
-                iconAnchor: [12, 12],
-              }),
-            });
-          }
-          if (type === "crossing") {
-            return L.marker(latlng, {
-              icon: L.divIcon({
-                className: "rsx-marker-wrap",
-                html: `<div class="crossing-marker">✕</div>`,
-                iconSize: [16, 16],
-                iconAnchor: [8, 8],
-              }),
-            });
-          }
-          return L.circleMarker(latlng, {
-            radius: 3.5,
-            color: "#8b9bb4",
-            fillColor: "#8b9bb4",
-            fillOpacity: 0.75,
-            weight: 1,
-          });
-        },
-        onEachFeature: (feature, layer) => {
-          layer.on("click", () => showGenericMeta(titleFn(feature.properties), feature.properties));
-        },
-      }).addTo(layerGroup);
+      const cache = state.pointCache[cacheKey];
+      let added = 0;
+      geojson.features.forEach((feature) => {
+        const key = featureKey(feature.properties, cacheKey);
+        if (cache.has(key)) return;
+        const latlng = L.latLng(
+          feature.geometry.coordinates[1],
+          feature.geometry.coordinates[0]
+        );
+        const layer = pointToMarker(feature, latlng, cacheKey, titleFn);
+        if (!layer) return;
+        layer._rsxKey = key;
+        layer._rsxProps = feature.properties;
+        layer.addTo(layerGroup);
+        cache.set(key, layer);
+        added++;
+      });
+      if (added) toast(`${cacheKey}: +${added} features`, "success");
     } catch (e) {
-      console.error(type + " load error", e);
+      console.error(cacheKey + " load error", e);
     }
+  }
+
+  function pointToMarker(feature, latlng, type, titleFn) {
+    const p = feature.properties || {};
+    const title = titleFn(p);
+    if (type === "yards") {
+      const m = L.marker(latlng, {
+        icon: L.divIcon({
+          className: "rsx-marker-wrap",
+          html: `<div class="yard-marker" title="${escapeHtml(title)}">
+            <svg viewBox="0 0 24 24" width="12" height="12"><rect x="3" y="8" width="18" height="10" rx="1" fill="currentColor" opacity="0.9"/><rect x="6" y="4" width="4" height="4" fill="currentColor"/><rect x="14" y="4" width="4" height="4" fill="currentColor"/></svg>
+          </div>`,
+          iconSize: [24, 24],
+          iconAnchor: [12, 12],
+        }),
+      });
+      m.on("click", () => showYardMeta(p, title));
+      return m;
+    }
+    if (type === "crossings") {
+      const m = L.marker(latlng, {
+        icon: L.divIcon({
+          className: "rsx-marker-wrap",
+          html: `<div class="crossing-marker" title="${escapeHtml(title)}">✕</div>`,
+          iconSize: [16, 16],
+          iconAnchor: [8, 8],
+        }),
+      });
+      m.on("click", () => showCrossingMeta(p, title));
+      return m;
+    }
+    // nodes — style by role
+    const isStation = !!(p.PASSNGRSTN || (p.PASSNGR && String(p.PASSNGR).toUpperCase() !== "N" && String(p.PASSNGR) !== "0"));
+    const isBoundary = p.BNDRY === 1 || p.BNDRY === "1";
+    const color = isStation ? "#00c2ff" : isBoundary ? "#ffb020" : "#8b9bb4";
+    const m = L.circleMarker(latlng, {
+      radius: isStation ? 5 : 3.5,
+      color,
+      fillColor: color,
+      fillOpacity: 0.85,
+      weight: 1.5,
+    });
+    m.bindTooltip(title, { direction: "top", opacity: 0.9, className: "rsx-tip" });
+    m.on("click", () => showNodeMeta(p, title));
+    return m;
+  }
+
+  function showNodeMeta(p, title) {
+    const station = (p.PASSNGRSTN || "").toString().trim() || "—";
+    const pass = (p.PASSNGR || "—").toString();
+    const role = [];
+    if (p.PASSNGRSTN) role.push("Passenger station node");
+    if (p.BNDRY === 1 || p.BNDRY === "1") role.push("Network boundary");
+    if (!role.length) role.push("Rail junction / topology node (NARN)");
+    const html = `
+      <div class="section-title">Network Node</div>
+      <div class="kv"><span class="k">Role</span><span class="v">${escapeHtml(role.join(" · "))}</span></div>
+      <div class="kv"><span class="k">Station name</span><span class="v">${escapeHtml(station)}</span></div>
+      <div class="kv"><span class="k">Passenger flag</span><span class="v">${escapeHtml(pass)}</span></div>
+      <div class="kv"><span class="k">FRA Node ID</span><span class="v">${escapeHtml(String(p.FRANODEID ?? "—"))}</span></div>
+      <div class="kv"><span class="k">State</span><span class="v">${escapeHtml(p.STATE || "—")}</span></div>
+      <div class="kv"><span class="k">County FIPS</span><span class="v">${escapeHtml(p.CTYFIPS || p.STCYFIPS || "—")}</span></div>
+      <div class="kv"><span class="k">FRA District</span><span class="v">${escapeHtml(String(p.FRADISTRCT ?? "—"))}</span></div>
+      <div class="kv"><span class="k">Boundary node</span><span class="v">${p.BNDRY === 1 || p.BNDRY === "1" ? "Yes" : "No"}</span></div>
+      <p style="margin-top:0.75rem;font-size:0.72rem;color:var(--text-muted)">
+        NARN nodes are topology points (junctions, station ends, boundaries). Public national data does <strong>not</strong> include proprietary wayside devices (hot-box detectors, dragging-equipment detectors, switch heaters, AEI readers). Those are railroad-owned and not published as open GIS.
+      </p>
+    `;
+    openMeta(title || "Network Node", html);
+  }
+
+  function showCrossingMeta(p, title) {
+    const html = `
+      <div class="section-title">Highway–Rail Grade Crossing</div>
+      <div class="kv"><span class="k">Street / Highway</span><span class="v">${escapeHtml(p.STREET || p.Street || p.HIGHWAY || "—")}</span></div>
+      <div class="kv"><span class="k">Crossing ID</span><span class="v">${escapeHtml(p.CrossingID || p.CROSSING || "—")}</span></div>
+      <div class="kv"><span class="k">Railroad</span><span class="v">${escapeHtml(p.RailroadCode || p.RAILROAD || "—")}</span></div>
+      <div class="kv"><span class="k">Division</span><span class="v">${escapeHtml(p.RailroadDivision || p.RRDIV || "—")}</span></div>
+      <div class="kv"><span class="k">Subdivision</span><span class="v">${escapeHtml(p.RRSUBDIV || "—")}</span></div>
+      <div class="kv"><span class="k">Milepost</span><span class="v">${escapeHtml(p.MILEPOST || p.Milepost || "—")}</span></div>
+      <div class="kv"><span class="k">Timetable station</span><span class="v">${escapeHtml(p.TimetableStation || p.TTSTN || "—")}</span></div>
+      <div class="kv"><span class="k">Type</span><span class="v">${escapeHtml(String(p.TYPEXING || p.TYPE || "—"))}</span></div>
+      <p style="margin-top:0.6rem;font-size:0.72rem;color:var(--text-muted)">Source: FRA National Highway–Rail Crossing Inventory (NTAD).</p>
+    `;
+    openMeta(title || "Grade Crossing", html);
+  }
+
+  function showYardMeta(p, title) {
+    const keys = ["NAME","YARDNAME","RROWNER1","STATE","STATEAB","CITY","STFIPS"];
+    const rows = keys
+      .filter((k) => p[k] != null && p[k] !== "")
+      .map((k) => `<div class="kv"><span class="k">${escapeHtml(k)}</span><span class="v">${escapeHtml(String(p[k]))}</span></div>`)
+      .join("");
+    const extra = Object.keys(p)
+      .filter((k) => !keys.includes(k) && !k.startsWith("SHAPE") && p[k] != null && p[k] !== "")
+      .slice(0, 12)
+      .map((k) => `<div class="kv"><span class="k">${escapeHtml(k)}</span><span class="v">${escapeHtml(String(p[k]))}</span></div>`)
+      .join("");
+    openMeta(title || "Rail Yard", `
+      <div class="section-title">Yard / Facility</div>
+      ${rows || "<em>Named facility</em>"}
+      <div class="section-title">Attributes</div>
+      ${extra || ""}
+    `);
+  }
+
+  function showGenericMeta(title, props) {
+    const keys = Object.keys(props).filter((k) => !k.startsWith("SHAPE") && props[k] != null).slice(0, 30);
+    const rows = keys.map((k) =>
+      `<div class="kv"><span class="k">${escapeHtml(k)}</span><span class="v">${escapeHtml(String(props[k]))}</span></div>`
+    ).join("");
+    openMeta(title, rows || "<em>No attributes</em>");
   }
 
   // ---------- Metadata floating window ----------
@@ -593,15 +741,7 @@
     openMeta(`Train ${t.trainNum} — ${t.routeName || ""}`, html);
   }
 
-  function showGenericMeta(title, props) {
-    const keys = Object.keys(props).filter((k) => !k.startsWith("SHAPE") && props[k] != null).slice(0, 25);
-    const rows = keys.map((k) =>
-      `<div class="kv"><span class="k">${escapeHtml(k)}</span><span class="v">${escapeHtml(String(props[k]))}</span></div>`
-    ).join("");
-    openMeta(title, rows || "<em>No attributes</em>");
-  }
-
-  function openMeta(title, bodyHtml) {
+    function openMeta(title, bodyHtml) {
     document.getElementById("meta-title").textContent = title;
     document.getElementById("meta-body").innerHTML = bodyHtml;
     document.getElementById("meta-window").classList.remove("hidden");
