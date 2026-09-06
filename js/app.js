@@ -1369,6 +1369,7 @@ function initSearch() {
     const input = document.getElementById("global-search");
     const results = document.getElementById("search-results");
     let debounce;
+    state.searchScope = state.searchScope || "all";
 
     input.addEventListener("input", () => {
       clearTimeout(debounce);
@@ -1380,6 +1381,26 @@ function initSearch() {
     document.addEventListener("click", (e) => {
       if (!e.target.closest(".search-wrap")) results.classList.add("hidden");
     });
+
+    const scope = document.getElementById("search-scope");
+    if (scope) {
+      scope.querySelectorAll(".scope-btn").forEach((btn) => {
+        btn.addEventListener("click", (e) => {
+          e.preventDefault();
+          scope.querySelectorAll(".scope-btn").forEach((b) => b.classList.remove("active"));
+          btn.classList.add("active");
+          state.searchScope = btn.dataset.scope || "all";
+          const placeholders = {
+            all: "County, township, ZIP, station, train…",
+            county: "County name — e.g. Somerset County NJ",
+            township: "Township — e.g. Montgomery Township NJ",
+            zip: "5-digit ZIP — e.g. 08558",
+          };
+          input.placeholder = placeholders[state.searchScope] || placeholders.all;
+          if (input.value.trim()) runSearch(input.value.trim());
+        });
+      });
+    }
   }
 
   function rebuildSearchIndex(trainData) {
@@ -1443,18 +1464,20 @@ function initSearch() {
       .filter((i) => i.type !== "station" && matchItem(i))
       .slice(0, 8);
 
-    // Local hits first (instant)
-    const local = [...stationHits, ...otherHits];
-    renderSearchResults(local, results);
+    const scope = state.searchScope || "all";
+    const local = scope === "all" ? [...stationHits, ...otherHits] : [];
+    if (local.length) renderSearchResults(local, results);
+    else if (scope !== "all") {
+      results.innerHTML = `<div class="search-item"><em>Looking up ${escapeHtml(scope)}…</em></div>`;
+      results.classList.remove("hidden");
+    } else {
+      renderSearchResults([], results);
+    }
 
-    // Place search: ZIP, township, county, city via OpenStreetMap Nominatim (no API key)
     geocodePlaces(q).then((places) => {
-      if (!places.length) return;
-      // Only merge if search box still shows same query
       const current = document.getElementById("global-search").value.trim();
       if (current.toLowerCase() !== lower) return;
-      const merged = [...places, ...local];
-      // de-dupe by label
+      const merged = scope === "all" ? [...places, ...local] : [...places];
       const seen = new Set();
       const uniq = merged.filter((h) => {
         const k = (h.label || "").toLowerCase();
@@ -1463,7 +1486,9 @@ function initSearch() {
         return true;
       }).slice(0, 18);
       renderSearchResults(uniq, results);
-    }).catch(() => {});
+    }).catch(() => {
+      if (!local.length) renderSearchResults([], results);
+    });
   }
 
   function renderSearchResults(all, resultsEl) {
@@ -1532,76 +1557,98 @@ function initSearch() {
 
   async function geocodePlaces(q) {
     const key = q.toLowerCase().trim();
-    if (_geocodeCache.has(key)) return _geocodeCache.get(key);
+    const scope = state.searchScope || "all";
+    const cacheKey = scope + "|" + key;
+    if (_geocodeCache.has(cacheKey)) return _geocodeCache.get(cacheKey);
+    if (key.length < 2) return [];
 
-    // Heuristics: pure 5-digit ZIP, or contains county/township keywords, or general US place
-    const isZip = /^\d{5}(-\d{4})?$/.test(key);
-    const looksPlace =
-      isZip ||
-      /\b(county|co\.|township|twp|borough|parish)\b/i.test(q) ||
-      key.length >= 3;
+    const isZip = /^\d{5}(-\d{4})?$/.test(key.replace(/\s/g, ""));
+    const results = [];
 
-    if (!looksPlace) return [];
-
-    // Nominatim usage policy: identify app; USA only
-    const params = new URLSearchParams({
-      q: isZip ? key : q,
-      format: "json",
-      addressdetails: "1",
-      limit: "6",
-      countrycodes: "us",
-    });
-    if (isZip) {
-      params.set("postalcode", key.slice(0, 5));
-      params.delete("q");
+    // Build one or more Nominatim queries based on scope
+    const queries = [];
+    if (scope === "zip" || (scope === "all" && isZip)) {
+      queries.push({ postalcode: key.replace(/\D/g, "").slice(0, 5), countrycodes: "us", format: "json", addressdetails: "1", limit: "5" });
+    }
+    if (scope === "county" || scope === "all") {
+      let cq = q;
+      if (scope === "county" && !/county/i.test(q)) cq = q + " County";
+      queries.push({ q: cq, countrycodes: "us", format: "json", addressdetails: "1", limit: "6", featuretype: "settlement" });
+      // boundary search helps counties
+      queries.push({ q: cq + " USA", countrycodes: "us", format: "json", addressdetails: "1", limit: "4" });
+    }
+    if (scope === "township" || scope === "all") {
+      let tq = q;
+      if (scope === "township" && !/township|twp/i.test(q)) tq = q + " Township";
+      queries.push({ q: tq, countrycodes: "us", format: "json", addressdetails: "1", limit: "6" });
+    }
+    if (scope === "all" && !isZip) {
+      queries.push({ q: q, countrycodes: "us", format: "json", addressdetails: "1", limit: "5" });
     }
 
-    const url = "https://nominatim.openstreetmap.org/search?" + params.toString();
-    const res = await fetch(url, {
-      headers: {
-        Accept: "application/json",
-        // Browser may strip custom User-Agent; Referrer identifies GitHub Pages host
-      },
-    });
-    if (!res.ok) return [];
-    const data = await res.json();
-    if (!Array.isArray(data)) return [];
+    // Dedupe query strings
+    const seenQ = new Set();
+    const uniqueQueries = [];
+    for (const p of queries) {
+      const sig = JSON.stringify(p);
+      if (seenQ.has(sig)) continue;
+      seenQ.add(sig);
+      uniqueQueries.push(p);
+    }
 
-    const places = data.map((r) => {
-      const addr = r.address || {};
-      let type = "place";
-      if (isZip || addr.postcode) type = "zip";
-      else if (addr.county && /county/i.test(r.display_name || "")) type = "county";
-      else if (addr.township || /township|twp/i.test(r.display_name || "")) type = "township";
-      else if (r.type === "administrative" && (r.class === "boundary")) {
-        if (/county/i.test(r.display_name || "")) type = "county";
-        else if (/township/i.test(r.display_name || "")) type = "township";
+    for (const p of uniqueQueries.slice(0, 3)) {
+      try {
+        const url = "https://nominatim.openstreetmap.org/search?" + new URLSearchParams(p).toString();
+        const res = await fetch(url, { headers: { Accept: "application/json" } });
+        if (!res.ok) continue;
+        const data = await res.json();
+        if (!Array.isArray(data)) continue;
+        for (const r of data) {
+          const addr = r.address || {};
+          let type = "place";
+          if (isZip || addr.postcode) type = "zip";
+          else if (addr.county || /county/i.test(r.display_name || "") || r.type === "administrative") {
+            if (/township|twp/i.test(r.display_name || "") || addr.township) type = "township";
+            else if (/county/i.test(r.display_name || "") || addr.county) type = "county";
+          } else if (addr.township || /township|twp/i.test(r.display_name || "")) type = "township";
+
+          // Scope filter
+          if (scope === "county" && type !== "county" && type !== "place") continue;
+          if (scope === "township" && type !== "township" && type !== "place") continue;
+          if (scope === "zip" && type !== "zip") continue;
+
+          let bbox = null;
+          if (Array.isArray(r.boundingbox) && r.boundingbox.length === 4) {
+            bbox = r.boundingbox.map(Number);
+          }
+          const label =
+            r.display_name ||
+            [addr.postcode, addr.township, addr.county, addr.state].filter(Boolean).join(", ");
+          const lat = parseFloat(r.lat);
+          const lon = parseFloat(r.lon);
+          if (Number.isNaN(lat) || Number.isNaN(lon)) continue;
+          results.push({ type, label, lat, lon, bbox, data: r });
+        }
+      } catch (e) {
+        console.warn("geocode", e);
       }
+    }
 
-      // boundingbox: [south, north, west, east] as strings
-      let bbox = null;
-      if (Array.isArray(r.boundingbox) && r.boundingbox.length === 4) {
-        bbox = r.boundingbox.map(Number);
-      }
+    // Prefer county/township/zip ordering when scope is all
+    const rank = { zip: 0, county: 1, township: 2, place: 3 };
+    results.sort((a, b) => (rank[a.type] ?? 9) - (rank[b.type] ?? 9));
 
-      const label =
-        r.display_name ||
-        [addr.postcode, addr.township, addr.county, addr.state, addr.country]
-          .filter(Boolean)
-          .join(", ");
-
-      return {
-        type,
-        label,
-        lat: parseFloat(r.lat),
-        lon: parseFloat(r.lon),
-        bbox,
-        data: r,
-      };
-    }).filter((p) => !Number.isNaN(p.lat) && !Number.isNaN(p.lon));
-
-    _geocodeCache.set(key, places);
-    return places;
+    const dedup = [];
+    const seen = new Set();
+    for (const r of results) {
+      const k = (r.label || "").toLowerCase().slice(0, 80);
+      if (seen.has(k)) continue;
+      seen.add(k);
+      dedup.push(r);
+    }
+    const out = dedup.slice(0, 8);
+    _geocodeCache.set(cacheKey, out);
+    return out;
   }
 
   // ---------- Live railcams ----------

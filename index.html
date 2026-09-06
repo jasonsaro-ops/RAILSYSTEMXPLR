@@ -45,7 +45,13 @@
       <div class="actions">
         <div class="search-wrap">
           <i class="fa-solid fa-magnifying-glass"></i>
-          <input type="search" id="global-search" placeholder="Search ZIP, township, county, station, city, train…" autocomplete="off" />
+          <input type="search" id="global-search" placeholder="County, township, ZIP, station, train…" autocomplete="off" />
+          <div class="search-scope" id="search-scope" title="Search scope">
+            <button type="button" class="scope-btn active" data-scope="all">All</button>
+            <button type="button" class="scope-btn" data-scope="county">County</button>
+            <button type="button" class="scope-btn" data-scope="township">Township</button>
+            <button type="button" class="scope-btn" data-scope="zip">ZIP</button>
+          </div>
           <div id="search-results" class="search-results hidden"></div>
         </div>
         <button id="btn-refresh" class="btn primary" title="Force refresh">

@@ -847,3 +847,54 @@ html, body {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
 }
+
+/* Search scope: County / Township / ZIP */
+.search-wrap {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  min-width: 280px;
+  max-width: 420px;
+  flex: 1;
+}
+.search-wrap > .fa-magnifying-glass {
+  position: absolute;
+  left: 12px;
+  top: 12px;
+  z-index: 2;
+  color: var(--text-muted, #8a9bb0);
+  pointer-events: none;
+}
+.search-wrap #global-search {
+  padding-left: 36px;
+  width: 100%;
+}
+.search-scope {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.scope-btn {
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(0, 212, 170, 0.25);
+  background: rgba(10, 14, 20, 0.6);
+  color: var(--text-muted, #8a9bb0);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.scope-btn:hover {
+  border-color: rgba(0, 212, 170, 0.5);
+  color: #e8f0f8;
+}
+.scope-btn.active {
+  background: rgba(0, 212, 170, 0.18);
+  border-color: #00d4aa;
+  color: #00d4aa;
+}
