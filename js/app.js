@@ -36,7 +36,8 @@
     lastTrainData: null,
     lastRefresh: null,
     queryInFlight: false,
-    searchIndex: [], // stations + recent trains for search
+    searchIndex: [], // stations + trains + cities for search
+    amtrakStationIndex: [], // nationwide Amtrak stations for search
   };
 
   // ---------- Init ----------
@@ -748,9 +749,79 @@
 
 
   async function loadAmtrakStations() {
+    // Map markers for current viewport (BTS NTAD)
     await loadNamedPointLayer(CONFIG.AMTRAK_STATIONS, state.layers.amtrakStations, "amtrakStations", (p) => {
       return p.Name || p.StationName || p.STNNAME || p.Code || "Amtrak Station";
     }, "amtrak");
+  }
+
+  /** Nationwide Amtrak station list for search (Amtraker public API + BTS fallback) */
+  async function loadAmtrakStationIndex() {
+    // Prefer Amtraker stations API — full national list with lat/lon/codes
+    try {
+      const res = await fetch(CONFIG.AMTRAKER_STATIONS);
+      if (res.ok) {
+        const data = await res.json();
+        const items = [];
+        // Amtraker returns object keyed by station code
+        const list = Array.isArray(data) ? data : Object.values(data || {});
+        list.forEach((s) => {
+          if (!s) return;
+          const lat = s.lat ?? s.latitude ?? s.Lat;
+          const lon = s.lon ?? s.lng ?? s.longitude ?? s.Lon;
+          if (lat == null || lon == null) return;
+          const name = s.name || s.stationName || s.Name || "";
+          const code = s.code || s.stationCode || s.Code || "";
+          const city = s.city || s.City || "";
+          const st = s.state || s.State || "";
+          items.push({
+            type: "station",
+            label: [name, code && `(${code})`, city, st].filter(Boolean).join(" · "),
+            name, code, city, state: st,
+            lat: Number(lat), lon: Number(lon),
+            data: s,
+          });
+        });
+        if (items.length) {
+          state.amtrakStationIndex = items;
+          rebuildSearchIndex(state.lastTrainData);
+          toast(`Amtrak stations indexed: ${items.length}`, "success");
+          return;
+        }
+      }
+    } catch (e) {
+      console.warn("Amtraker stations", e);
+    }
+    // Fallback: query BTS NTAD without geometry filter (paginated-ish)
+    try {
+      const params = new URLSearchParams({
+        f: "geojson",
+        where: "1=1",
+        outFields: "Name,Code,City,State,ZipCode,Address1,StnType,OBJECTID",
+        outSR: "4326",
+        resultRecordCount: "2000",
+      });
+      const res = await fetch(`${CONFIG.AMTRAK_STATIONS}/query?${params}`);
+      const geojson = await res.json();
+      const items = [];
+      (geojson.features || []).forEach((f) => {
+        const p = f.properties || {};
+        const c = f.geometry && f.geometry.coordinates;
+        if (!c) return;
+        items.push({
+          type: "station",
+          label: [p.Name, p.Code && `(${p.Code})`, p.City, p.State].filter(Boolean).join(" · "),
+          name: p.Name || "", code: p.Code || "", city: p.City || "", state: p.State || "",
+          lat: c[1], lon: c[0],
+          data: p,
+        });
+      });
+      state.amtrakStationIndex = items;
+      rebuildSearchIndex(state.lastTrainData);
+      toast(`Amtrak stations indexed: ${items.length}`, "success");
+    } catch (e) {
+      console.error("Amtrak station index", e);
+    }
   }
 
   async function loadMileposts() {
@@ -1232,6 +1303,7 @@ function initSearch() {
 
   function rebuildSearchIndex(trainData) {
     const items = [];
+    // Live trains
     Object.values(trainData || {}).forEach((arr) => {
       if (!Array.isArray(arr)) return;
       arr.forEach((t) => {
@@ -1244,6 +1316,29 @@ function initSearch() {
         });
       });
     });
+    // Nationwide Amtrak stations (La Plata, etc.)
+    (state.amtrakStationIndex || []).forEach((s) => items.push(s));
+    // City presets
+    (CONFIG.CITY_PRESETS || []).forEach((c) => {
+      items.push({
+        type: "city",
+        label: c.name + (c.systems ? " · " + c.systems : ""),
+        lat: (c.south + c.north) / 2,
+        lon: (c.west + c.east) / 2,
+        data: c,
+      });
+    });
+    // Railcams
+    if (typeof RAILCAMS !== "undefined") {
+      RAILCAMS.forEach((cam) => {
+        items.push({
+          type: "camera",
+          label: cam.name + (cam.channel ? " · " + cam.channel : ""),
+          lat: cam.lat, lon: cam.lng || cam.lon,
+          data: cam,
+        });
+      });
+    }
     state.searchIndex = items;
   }
 
@@ -1253,17 +1348,25 @@ function initSearch() {
       results.classList.add("hidden");
       return;
     }
-    const lower = q.toLowerCase();
-    const hits = state.searchIndex
-      .filter((i) => i.label.toLowerCase().includes(lower))
-      .slice(0, 12);
+    const lower = q.toLowerCase().trim();
+    const tokens = lower.split(/\s+/).filter(Boolean);
 
-    // also allow railroad name quick jumps
-    const ownerHits = Object.entries(CONFIG.OWNERS)
+    const matchItem = (i) => {
+      const hay = [i.label, i.name, i.code, i.city, i.state]
+        .filter(Boolean).join(" ").toLowerCase();
+      return tokens.every((tok) => hay.includes(tok));
+    };
+
+    const stationHits = (state.amtrakStationIndex || []).filter(matchItem).slice(0, 10);
+    const otherHits = state.searchIndex
+      .filter((i) => i.type !== "station" && matchItem(i))
+      .slice(0, 8);
+
+    const ownerHits = Object.entries(CONFIG.OWNERS || {})
       .filter(([, v]) => v.name.toLowerCase().includes(lower) || v.cls.includes(lower))
       .map(([, v]) => ({ type: "owner", label: v.name, cls: v.cls }));
 
-    const all = [...hits, ...ownerHits].slice(0, 15);
+    const all = [...stationHits, ...otherHits, ...ownerHits].slice(0, 18);
     if (!all.length) {
       results.innerHTML = `<div class="search-item"><em>No matches</em></div>`;
       results.classList.remove("hidden");
@@ -1274,7 +1377,7 @@ function initSearch() {
       .map(
         (h, idx) =>
           `<div class="search-item" data-idx="${idx}">
-            <div class="type">${h.type}</div>
+            <div class="type">${escapeHtml(h.type)}</div>
             <div>${escapeHtml(h.label)}</div>
           </div>`
       )
@@ -1284,15 +1387,23 @@ function initSearch() {
     results.querySelectorAll(".search-item").forEach((el) => {
       el.addEventListener("click", () => {
         const h = all[+el.dataset.idx];
-        if (h.type === "train" && h.lat != null) {
-          state.map.setView([h.lat, h.lon], 12);
-          showTrainMeta(h.data);
+        if ((h.type === "train" || h.type === "station" || h.type === "camera") && h.lat != null) {
+          state.map.setView([h.lat, h.lon], h.type === "station" ? 13 : 12);
+          if (h.type === "train") showTrainMeta(h.data);
+          else if (h.type === "station") showInfraMeta("amtrak", h.name || h.label, h.data || {});
+          else if (h.type === "camera" && h.data) {
+            // open camera meta if available via click path
+            const m = L.marker([h.lat, h.lon]);
+            openMeta(h.label, `<p>Railcam · ${escapeHtml(h.data.channel || "")}</p>
+              <iframe width="100%" height="220" src="https://www.youtube.com/embed/${escapeHtml(h.data.youtubeId || h.data.vid || "")}?autoplay=1" allowfullscreen></iframe>`);
+          }
+        } else if (h.type === "city" && h.data) {
+          flyToCity(h.data.id);
         } else if (h.type === "owner") {
-          // ensure that layer is on
           const cb = document.querySelector(`input[data-layer="${h.cls}"]`);
           if (cb && !cb.checked) {
             cb.checked = true;
-            applyRailVisibility();
+            if (typeof applyRailVisibility === "function") applyRailVisibility();
           }
           toast(`Showing ${h.label}`, "success");
         }

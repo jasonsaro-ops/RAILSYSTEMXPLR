@@ -776,3 +776,30 @@ html, body {
   color:#00d4aa; font-size:0.75rem; font-weight:600; cursor:pointer;
 }
 .btn-reset-filters:hover { background:rgba(0,212,170,0.18); }
+
+/* Premium markers */
+.mk-amtrak {
+  width: 18px; height: 18px;
+  background: linear-gradient(135deg, #00c2ff, #0ea5e9);
+  border: 2px solid #e0f7ff;
+  border-radius: 4px;
+  transform: rotate(45deg);
+  box-shadow: 0 0 8px rgba(0, 194, 255, 0.55);
+  display: flex; align-items: center; justify-content: center;
+}
+.mk-amtrak .mk-ic { transform: rotate(-45deg); font-size: 8px; color: #001018; font-weight: 700; }
+.rsx-marker { background: transparent !important; border: none !important; }
+.rsx-tip {
+  background: rgba(10, 14, 20, 0.95) !important;
+  border: 1px solid rgba(0, 194, 255, 0.35) !important;
+  color: #cfe3f5 !important;
+  border-radius: 6px !important;
+  font-size: 11px !important;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.4) !important;
+}
+.search-item .type {
+  text-transform: uppercase;
+  font-size: 10px;
+  color: #00c2ff;
+  letter-spacing: 0.04em;
+}
