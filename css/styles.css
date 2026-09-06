@@ -803,3 +803,9 @@ html, body {
   color: #00c2ff;
   letter-spacing: 0.04em;
 }
+
+.train-marker.train-auto {
+  background: linear-gradient(135deg, #f59e0b, #fbbf24) !important;
+  color: #1a1200 !important;
+  border-color: #fde68a !important;
+}

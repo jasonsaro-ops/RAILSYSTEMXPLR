@@ -14,13 +14,24 @@ const CONFIG = {
   NTM_ROUTES: "https://services.arcgis.com/xOi1kZaI0eWDREZv/arcgis/rest/services/NTAD_National_Transit_Map_Routes/FeatureServer/0",
   PASSENGER_RAIL_LINES: "https://services.arcgis.com/xOi1kZaI0eWDREZv/arcgis/rest/services/NTAD_North_American_Rail_Network_Lines_Passenger_Rail/FeatureServer/0",
 
-  // Official Class I Freight Railroads View (BNSF, UP, CSX, NS, CN, CPKC only)
-  // Same NARN source, pre-filtered ownership/trackage rights for Class I
+  // Official Class I Freight Railroads View (BNSF, UP, CSX, NS, CN, CPKC)
   CLASS1_LINES: "https://services.arcgis.com/xOi1kZaI0eWDREZv/arcgis/rest/services/NTAD_North_American_Rail_Network_Lines_Class_I_Railroads/FeatureServer/0",
+  // Per-carrier system maps (FRA/BTS filtered NARN views)
+  SYSTEM_MAPS: {
+    bnsf: "https://services.arcgis.com/xOi1kZaI0eWDREZv/arcgis/rest/services/NTAD_North_American_Rail_Network_Lines_BNSF/FeatureServer/0",
+    up:   "https://services.arcgis.com/xOi1kZaI0eWDREZv/arcgis/rest/services/NTAD_North_American_Rail_Network_Lines_UP/FeatureServer/0",
+    csx:  "https://services.arcgis.com/xOi1kZaI0eWDREZv/arcgis/rest/services/NTAD_North_American_Rail_Network_Lines_CSXT/FeatureServer/0",
+    ns:   "https://services.arcgis.com/xOi1kZaI0eWDREZv/arcgis/rest/services/NTAD_North_American_Rail_Network_Lines_NS/FeatureServer/0",
+    cn:   "https://services.arcgis.com/xOi1kZaI0eWDREZv/arcgis/rest/services/NTAD_North_American_Rail_Network_Lines_CN/FeatureServer/0",
+    cpkc: "https://services.arcgis.com/xOi1kZaI0eWDREZv/arcgis/rest/services/NTAD_North_American_Rail_Network_Lines_CPKC/FeatureServer/0",
+  },
 
-  // Near-real-time passenger trains (Amtrak + Brightline + Via)
+  // Near-real-time passenger trains (Amtrak + Brightline + Via) — dual hosts
   AMTRAKER_TRAINS: "https://api.amtraker.com/v3/trains",
+  AMTRAKER_TRAINS_ALT: "https://api-v3.amtraker.com/v3/trains",
   AMTRAKER_STATIONS: "https://api.amtraker.com/v3/stations",
+  // Named trains that must always be polled (Auto Train often under-reported in bulk)
+  PRIORITY_TRAIN_NUMS: ["52", "53"], // Auto Train Lorton↔Sanford
 
   // Refresh interval (ms)
   REFRESH_MS: 120000, // 2 minutes

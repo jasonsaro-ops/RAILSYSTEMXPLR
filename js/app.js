@@ -489,38 +489,90 @@
   }
 
   // ---------- Trains (Amtraker) ----------
+  async function fetchAmtrakerTrains() {
+    const urls = [CONFIG.AMTRAKER_TRAINS, CONFIG.AMTRAKER_TRAINS_ALT].filter(Boolean);
+    let lastErr = null;
+    for (const url of urls) {
+      try {
+        const res = await fetch(url, { cache: "no-store" });
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        return await res.json();
+      } catch (e) {
+        lastErr = e;
+        console.warn("Amtraker host failed", url, e);
+      }
+    }
+    throw lastErr || new Error("All Amtraker hosts failed");
+  }
+
+  async function mergePriorityTrains(data) {
+    // Auto Train (#52 Sanford→Lorton, #53 Lorton→Sanford) is often missing from bulk feed
+    const nums = CONFIG.PRIORITY_TRAIN_NUMS || ["52", "53"];
+    const base = CONFIG.AMTRAKER_TRAINS || "https://api.amtraker.com/v3/trains";
+    await Promise.all(
+      nums.map(async (num) => {
+        if (data[num] && Array.isArray(data[num]) && data[num].length) return;
+        try {
+          const res = await fetch(base + "/" + num, { cache: "no-store" });
+          if (!res.ok) return;
+          const j = await res.json();
+          // endpoint may return [] or { "52": [...] }
+          let arr = Array.isArray(j) ? j : j[num];
+          if (!arr && j && typeof j === "object") arr = Object.values(j).flat();
+          if (Array.isArray(arr) && arr.length) data[num] = arr;
+        } catch (e) {
+          console.warn("priority train", num, e);
+        }
+      })
+    );
+    return data;
+  }
+
   async function loadTrains() {
     try {
-      const res = await fetch(CONFIG.AMTRAKER_TRAINS);
-      if (!res.ok) throw new Error("Amtraker HTTP " + res.status);
-      const data = await res.json();
+      let data = await fetchAmtrakerTrains();
+      data = await mergePriorityTrains(data || {});
       state.lastTrainData = data;
       state.lastRefresh = new Date();
       renderTrains(data);
       updateStatusBar();
-      // build light search index
       rebuildSearchIndex(data);
+      const live = document.getElementById("live-indicator");
+      if (live) live.style.opacity = "1";
     } catch (err) {
       console.error("Train load failed", err);
-      toast("Live train feed unavailable", "error");
-      document.getElementById("live-indicator").style.opacity = "0.4";
+      toast("Live train feed unavailable — " + (err.message || "network"), "error");
+      const live = document.getElementById("live-indicator");
+      if (live) live.style.opacity = "0.4";
     }
+  }
+
+  function trainHasPosition(t) {
+    const lat = t.lat ?? t.latitude;
+    const lon = t.lon ?? t.lng ?? t.longitude;
+    return lat != null && lon != null && !Number.isNaN(Number(lat)) && !Number.isNaN(Number(lon));
   }
 
   function renderTrains(data) {
     state.layers.trains.clearLayers();
     state.trainMarkers.clear();
     let count = 0;
+    let autoCount = 0;
 
-    Object.values(data).forEach((arr) => {
+    Object.values(data || {}).forEach((arr) => {
       if (!Array.isArray(arr)) return;
       arr.forEach((t) => {
-        if (t.lat == null || t.lon == null) return;
+        if (!trainHasPosition(t)) return;
+        const lat = Number(t.lat ?? t.latitude);
+        const lon = Number(t.lon ?? t.lng ?? t.longitude);
         count++;
+        const isAuto = /auto\s*train/i.test(t.routeName || "") || ["52", "53"].includes(String(t.trainNum));
+        if (isAuto) autoCount++;
         const label = escapeHtml(t.trainNum || "");
+        const title = escapeHtml((t.routeName || "") + " #" + (t.trainNum || ""));
         const icon = L.divIcon({
           className: "rsx-marker-wrap",
-          html: `<div class="train-marker" title="${escapeHtml(t.routeName || t.trainNum)}">
+          html: `<div class="train-marker${isAuto ? " train-auto" : ""}" title="${title}">
             <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
               <path fill="currentColor" d="M12 2c-4 0-7 1.5-7 4v8c0 1.1.9 2 2 2h1l-1.5 3h2l1-2h3l1 2h2L13 16h1c1.1 0 2-.9 2-2V6c0-2.5-3-4-7-4zm-3.5 12a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm7 0a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zM7 8h10v3H7V8z"/>
             </svg>
@@ -529,15 +581,17 @@
           iconSize: [36, 22],
           iconAnchor: [18, 11],
         });
-        const marker = L.marker([t.lat, t.lon], { icon, zIndexOffset: 1000 });
+        const marker = L.marker([lat, lon], { icon, zIndexOffset: 1000 });
         marker.trainData = t;
         marker.on("click", () => showTrainMeta(t));
         marker.addTo(state.layers.trains);
-        state.trainMarkers.set(t.trainID || t.trainNum + "-" + t.lat, marker);
+        state.trainMarkers.set(t.trainID || t.trainNum + "-" + lat, marker);
       });
     });
 
-    document.getElementById("train-count").textContent = count;
+    const el = document.getElementById("train-count");
+    if (el) el.textContent = count;
+    if (autoCount) toast(`Auto Train live: ${autoCount}`, "success");
   }
 
   // ---------- Yards / Crossings / Nodes (on demand) ----------
@@ -1153,9 +1207,11 @@
       <div class="kv"><span class="k">Number</span><span class="v">${escapeHtml(t.trainNum)}</span></div>
       <div class="kv"><span class="k">Name</span><span class="v">${escapeHtml(t.routeName || "—")}</span></div>
       <div class="kv"><span class="k">ID</span><span class="v">${escapeHtml(t.trainID || "—")}</span></div>
-      <div class="kv"><span class="k">Status</span><span class="v"><span class="badge green">${escapeHtml(t.trainTimely || "In transit")}</span></span></div>
-      <div class="kv"><span class="k">Position</span><span class="v">${t.lat?.toFixed(4)}, ${t.lon?.toFixed(4)}</span></div>
-      <div class="kv"><span class="k">Source</span><span class="v">${escapeHtml(t.dataSource || "amtraker")}</span></div>
+      <div class="kv"><span class="k">Status</span><span class="v"><span class="badge green">${escapeHtml(t.trainTimely || t.trainState || t.statusMsg || "In transit")}</span></span></div>
+      <div class="kv"><span class="k">Position</span><span class="v">${Number(t.lat).toFixed(4)}, ${Number(t.lon).toFixed(4)}</span></div>
+      <div class="kv"><span class="k">Heading / Speed</span><span class="v">${escapeHtml(String(t.heading ?? "—"))} · ${t.velocity != null ? Number(t.velocity).toFixed(1) + " mph" : "—"}</span></div>
+      <div class="kv"><span class="k">Origin → Dest</span><span class="v">${escapeHtml(t.origCode || "")} → ${escapeHtml(t.destCode || "")}</span></div>
+      <div class="kv"><span class="k">Provider</span><span class="v">${escapeHtml(t.provider || t.dataSource || "amtraker")}</span></div>
 
       <div class="section-title">Recent / Upcoming Stops</div>
       ${stations || "<em>No station list</em>"}
