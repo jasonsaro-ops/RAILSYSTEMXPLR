@@ -60,7 +60,7 @@
     loadCameras();
     // Default passenger infra
     loadAmtrakStations();
-    setInterval(loadTrains, CONFIG.REFRESH_MS);
+    setInterval(() => { loadTrains(); if (typeof loadRailsForView === "function") loadRailsForView(); }, CONFIG.REFRESH_MS);
 
     // Re-query rails when map moves significantly
     let moveTimer;
@@ -1537,12 +1537,40 @@ function initSearch() {
   }
 
   // ---------- UI helpers ----------
+  async function softRefresh() {
+    const brand = document.getElementById("brand-refresh");
+    if (brand) brand.classList.add("refreshing");
+    toast("Soft refresh — live data…");
+    try {
+      await Promise.all([
+        loadTrains(),
+        typeof loadRailsForView === "function" ? loadRailsForView() : Promise.resolve(),
+        typeof loadAmtrakStations === "function" ? loadAmtrakStations() : Promise.resolve(),
+        typeof loadAmtrakStationIndex === "function" ? loadAmtrakStationIndex() : Promise.resolve(),
+      ]);
+      // re-pull transit if those layers are on
+      const tr = document.querySelector('input[data-layer="transitSubway"]');
+      if (tr && tr.checked && typeof loadTransitRoutes === "function") await loadTransitRoutes();
+      updateStatusBar();
+      toast("Refresh complete", "success");
+    } catch (e) {
+      console.error(e);
+      toast("Refresh partial — " + (e.message || "error"), "error");
+    } finally {
+      if (brand) setTimeout(() => brand.classList.remove("refreshing"), 600);
+    }
+  }
+
   function bindUI() {
-    document.getElementById("btn-refresh").addEventListener("click", () => {
-      loadTrains();
-      loadRailsForView();
-      toast("Refreshing…");
-    });
+    const btn = document.getElementById("btn-refresh");
+    if (btn) btn.addEventListener("click", () => softRefresh());
+    const brand = document.getElementById("brand-refresh");
+    if (brand) {
+      brand.addEventListener("click", () => softRefresh());
+      brand.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); softRefresh(); }
+      });
+    }
     document.getElementById("btn-fullscreen").addEventListener("click", () => {
       if (!document.fullscreenElement) document.documentElement.requestFullscreen();
       else document.exitFullscreen();

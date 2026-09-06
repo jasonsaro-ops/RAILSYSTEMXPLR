@@ -809,3 +809,41 @@ html, body {
   color: #1a1200 !important;
   border-color: #fde68a !important;
 }
+
+/* Brand soft-refresh + animated logo */
+.brand {
+  cursor: pointer;
+  user-select: none;
+  border-radius: 10px;
+  padding: 4px 8px 4px 4px;
+  transition: background 0.2s;
+}
+.brand:hover { background: rgba(0, 212, 170, 0.08); }
+.brand:active { background: rgba(0, 212, 170, 0.15); }
+.logo-anim {
+  position: relative;
+  animation: logo-pulse 2.4s ease-in-out infinite;
+}
+.logo-anim i {
+  display: inline-block;
+  animation: logo-chug 1.8s ease-in-out infinite;
+}
+.brand.refreshing .logo-anim {
+  animation: logo-spin 0.9s linear infinite;
+}
+.brand.refreshing .logo-anim i {
+  animation: none;
+}
+@keyframes logo-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(0, 212, 170, 0.35); }
+  50% { box-shadow: 0 0 0 6px rgba(0, 212, 170, 0); }
+}
+@keyframes logo-chug {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(1px); }
+  75% { transform: translateX(-1px); }
+}
+@keyframes logo-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}

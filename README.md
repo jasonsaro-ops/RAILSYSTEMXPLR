@@ -30,3 +30,10 @@ Freight Class I (BNSF, UP, CSX, NS, CN, CPKC), short lines, passenger/Amtrak, NT
 ## Optional TypeScript app
 
 See `typescript-app/` — `npm install && npm run dev`.
+
+
+## Live tracking limits
+
+- **Passenger (Amtrak / Brightline / Via):** Amtraker public API, ~2 min refresh.
+- **Class I freight (BNSF, UP, CSX, NS, CN, CPKC):** No public live GPS feed. TrainMon and similar enthusiast sites do not publish an open API for Class I positions. Carriers treat movements as proprietary. This app shows **system maps** (FRA/BTS NARN) for those railroads, not live freight dots.
+- Soft-refresh: click the **RAILSYSTEMXPLR** logo or the refresh button.
