@@ -16,7 +16,7 @@
       nodes: L.layerGroup(),
       cameras: L.layerGroup(),
     },
-    useClass1Only: false,
+    useClass1Only: true,
     basemaps: {},
     activeBasemap: "dark",
     railCache: new Map(), // key = feature id → layer
@@ -36,6 +36,10 @@
     initMetaWindow();
     bindUI();
 
+    // Sync Class I toggle from DOM (default checked)
+    const c1 = document.querySelector('input[data-layer="class1only"]');
+    if (c1) state.useClass1Only = c1.checked;
+
     // Initial load
     loadRailsForView();
     loadTrains();
@@ -46,7 +50,7 @@
     let moveTimer;
     state.map.on("moveend", () => {
       clearTimeout(moveTimer);
-      moveTimer = setTimeout(loadRailsForView, 400);
+      moveTimer = setTimeout(loadRailsForView, 650);
     });
 
     state.map.on("zoomend", updateZoomLabel);
@@ -71,44 +75,72 @@
   }
 
   function initBasemaps() {
-    // Dark professional (Carto Dark Matter — no key required for reasonable use)
+    // Dark Ops — Esri World Dark Gray (NO API key required)
     state.basemaps.dark = L.tileLayer(
-      "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
+      "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}",
       {
-        attribution:
-          '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
-        subdomains: "abcd",
-        maxZoom: 20,
+        attribution: "Tiles &copy; Esri — Dark Gray Canvas",
+        maxZoom: 16,
+      }
+    );
+    // Dark labels overlay (optional companion)
+    state.basemaps.darkLabels = L.tileLayer(
+      "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}",
+      {
+        attribution: "Esri",
+        maxZoom: 16,
+        opacity: 0.85,
       }
     );
 
-    // Classic OSM street
+    // Street — OpenStreetMap (no key)
     state.basemaps.osm = L.tileLayer(
       "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
       {
-        attribution:
-          '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+        maxZoom: 19,
+        subdomains: "abc",
+      }
+    );
+
+    // Satellite — Esri World Imagery (no key)
+    state.basemaps.satellite = L.tileLayer(
+      "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+      {
+        attribution: "Tiles &copy; Esri — Source: Esri, Maxar, Earthstar Geographics",
         maxZoom: 19,
       }
     );
 
-    // Esri World Imagery (satellite) — public endpoint
-    state.basemaps.satellite = L.tileLayer(
-      "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+    // Light gray canvas for alternate professional view
+    state.basemaps.light = L.tileLayer(
+      "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}",
       {
-        attribution:
-          "Tiles &copy; Esri — Source: Esri, Maxar, Earthstar Geographics",
-        maxZoom: 19,
+        attribution: "Tiles &copy; Esri — Light Gray Canvas",
+        maxZoom: 16,
       }
     );
 
     state.basemaps.dark.addTo(state.map);
+    state.basemaps.darkLabels.addTo(state.map);
+    state._darkLabelsOn = true;
   }
 
   function setBasemap(name) {
     if (state.activeBasemap === name) return;
-    state.map.removeLayer(state.basemaps[state.activeBasemap]);
+    // Remove current base + any dark labels
+    if (state.basemaps[state.activeBasemap]) {
+      state.map.removeLayer(state.basemaps[state.activeBasemap]);
+    }
+    if (state._darkLabelsOn && state.basemaps.darkLabels) {
+      state.map.removeLayer(state.basemaps.darkLabels);
+      state._darkLabelsOn = false;
+    }
     state.basemaps[name].addTo(state.map);
+    if (name === "dark" && state.basemaps.darkLabels) {
+      state.basemaps.darkLabels.addTo(state.map);
+      state._darkLabelsOn = true;
+    }
     state.activeBasemap = name;
   }
 
@@ -224,19 +256,23 @@
     return "other";
   }
 
-  function styleForOwner(cls, props) {
+  function styleForOwner(cls, props, zoom) {
     const colors = {
       bnsf: "#ff6b00",
       up: "#ffd100",
-      csx: "#0057b8",
-      ns: "#cccccc",
+      csx: "#3d8bfd",
+      ns: "#e8e8e8",
       cn: "#ed1c24",
-      cpkc: "#8b0000",
-      amtrak: "#00a3e0",
-      other: "#7a8a9e",
+      cpkc: "#c41e3a",
+      amtrak: "#00c2ff",
+      other: "#6b7c93",
     };
-    const weight = cls === "amtrak" ? 3.5 : 2.2;
-    const opacity = cls === "other" ? 0.55 : 0.85;
+    const z = zoom != null ? zoom : (state.map ? state.map.getZoom() : 6);
+    let weight = cls === "amtrak" ? 3.2 : 2.4;
+    if (z <= 5) weight = cls === "amtrak" ? 2.0 : 1.4;
+    else if (z <= 7) weight = cls === "amtrak" ? 2.6 : 1.8;
+    else if (z >= 12) weight = cls === "amtrak" ? 4 : 3;
+    const opacity = cls === "other" ? 0.5 : 0.9;
     return {
       color: colors[cls] || colors.other,
       weight,
@@ -250,57 +286,85 @@
     if (state.queryInFlight) return;
     const bounds = state.map.getBounds();
     const zoom = state.map.getZoom();
+    state.queryInFlight = true;
 
-    // Don't overload at very low zoom – sample or skip dense query
-    if (zoom < 6) {
-      // At national view we still want a sparse network; query with lower density via resultOffset or just proceed
+    // Zoom-aware strategy (ArcGIS maxRecordCount = 2000)
+    // Low zoom → Class I official view + simplified geometry (full national system map)
+    // Mid/high zoom → full NARN clipped to viewport
+    const forceClass1 = state.useClass1Only || zoom < 7;
+    const endpoint = forceClass1 && CONFIG.CLASS1_LINES
+      ? CONFIG.CLASS1_LINES
+      : CONFIG.NARN_LINES;
+
+    // Geometry simplification in map units (degrees) — faster draw at national view
+    let maxOffset = 0;
+    if (zoom <= 5) maxOffset = 0.08;
+    else if (zoom <= 7) maxOffset = 0.03;
+    else if (zoom <= 9) maxOffset = 0.008;
+    else if (zoom <= 11) maxOffset = 0.002;
+
+    const geom = {
+      xmin: bounds.getWest(),
+      ymin: bounds.getSouth(),
+      xmax: bounds.getEast(),
+      ymax: bounds.getNorth(),
+      spatialReference: { wkid: 4326 },
+    };
+
+    // At very low zoom expand envelope slightly so edges aren't clipped
+    if (zoom <= 5) {
+      const pad = 2;
+      geom.xmin -= pad; geom.xmax += pad;
+      geom.ymin -= pad; geom.ymax += pad;
     }
 
-    state.queryInFlight = true;
     try {
-      const geom = {
-        xmin: bounds.getWest(),
-        ymin: bounds.getSouth(),
-        xmax: bounds.getEast(),
-        ymax: bounds.getNorth(),
-        spatialReference: { wkid: 4326 },
-      };
+      // Fetch up to 2 pages when zoomed in enough to need density
+      const pages = zoom >= 8 ? 2 : 1;
+      let allFeatures = [];
 
-      const params = new URLSearchParams({
-        f: "geojson",
-        where: "1=1",
-        outFields: "OBJECTID,RROWNER1,RROWNER2,RROWNER3,PASSNGR,STRACNET,TRACKS,YARDNAME,SUBDIV,MILES,STATEAB,FRAARCID",
-        geometry: JSON.stringify(geom),
-        geometryType: "esriGeometryEnvelope",
-        inSR: "4326",
-        spatialRel: "esriSpatialRelIntersects",
-        outSR: "4326",
-        resultRecordCount: String(CONFIG.MAX_RECORDS),
-      });
+      for (let page = 0; page < pages; page++) {
+        const params = new URLSearchParams({
+          f: "geojson",
+          where: "1=1",
+          outFields: "OBJECTID,RROWNER1,RROWNER2,RROWNER3,PASSNGR,STRACNET,TRACKS,YARDNAME,SUBDIV,MILES,STATEAB,FRAARCID",
+          geometry: JSON.stringify(geom),
+          geometryType: "esriGeometryEnvelope",
+          inSR: "4326",
+          spatialRel: "esriSpatialRelIntersects",
+          outSR: "4326",
+          resultRecordCount: String(CONFIG.MAX_RECORDS),
+          resultOffset: String(page * CONFIG.MAX_RECORDS),
+        });
+        if (maxOffset > 0) {
+          params.set("maxAllowableOffset", String(maxOffset));
+        }
 
-      const endpoint = state.useClass1Only && CONFIG.CLASS1_LINES
-        ? CONFIG.CLASS1_LINES
-        : CONFIG.NARN_LINES;
-      const url = `${endpoint}/query?${params.toString()}`;
-      const res = await fetch(url);
-      if (!res.ok) throw new Error("NARN query failed: " + res.status);
-      const geojson = await res.json();
-
-      if (!geojson.features) {
-        console.warn("No features returned", geojson);
-        return;
+        const url = `${endpoint}/query?${params.toString()}`;
+        const res = await fetch(url);
+        if (!res.ok) throw new Error("NARN query failed: " + res.status);
+        const geojson = await res.json();
+        if (geojson.error) throw new Error(geojson.error.message || "ArcGIS error");
+        if (!geojson.features || !geojson.features.length) break;
+        allFeatures = allFeatures.concat(geojson.features);
+        if (geojson.features.length < CONFIG.MAX_RECORDS) break;
       }
 
-      // Clear previous rail layers for simplicity (viewport-driven)
       state.layers.rails.clearLayers();
       state.railCache.clear();
 
-      const enabledOwners = getEnabledOwners();
+      if (!allFeatures.length) {
+        toast("No rail segments in view", "error");
+        return;
+      }
 
-      L.geoJSON(geojson, {
+      const enabledOwners = getEnabledOwners();
+      const fc = { type: "FeatureCollection", features: allFeatures };
+
+      L.geoJSON(fc, {
         style: (feature) => {
           const cls = classifyOwner(feature.properties);
-          return styleForOwner(cls, feature.properties);
+          return styleForOwner(cls, feature.properties, zoom);
         },
         filter: (feature) => {
           const cls = classifyOwner(feature.properties);
@@ -308,20 +372,21 @@
         },
         onEachFeature: (feature, layer) => {
           layer._railProps = feature.properties;
+          layer.feature = feature;
           layer.on("click", () => showRailMeta(feature.properties, layer.getBounds?.()));
-          // subtle hover
-          layer.on("mouseover", () => layer.setStyle({ weight: 5, opacity: 1 }));
+          layer.on("mouseover", () => layer.setStyle({ weight: Math.min(6, (layer.options.weight || 2) + 2), opacity: 1 }));
           layer.on("mouseout", () => {
             const cls = classifyOwner(feature.properties);
-            layer.setStyle(styleForOwner(cls, feature.properties));
+            layer.setStyle(styleForOwner(cls, feature.properties, zoom));
           });
         },
       }).addTo(state.layers.rails);
 
-      toast(`Loaded ${geojson.features.length} rail segments`, "success");
+      const mode = forceClass1 ? "Class I system map" : "Full NARN";
+      toast(`${mode}: ${allFeatures.length} segments`, "success");
     } catch (err) {
       console.error(err);
-      toast("Rail network load error — check console / CORS", "error");
+      toast("Rail network load error — " + (err.message || "see console"), "error");
     } finally {
       state.queryInFlight = false;
     }
@@ -361,17 +426,22 @@
     state.trainMarkers.clear();
     let count = 0;
 
-    // data is keyed by train number → array of train objects
     Object.values(data).forEach((arr) => {
       if (!Array.isArray(arr)) return;
       arr.forEach((t) => {
         if (t.lat == null || t.lon == null) return;
         count++;
+        const label = escapeHtml(t.trainNum || "");
         const icon = L.divIcon({
-          className: "",
-          html: `<div class="train-marker" title="${escapeHtml(t.routeName || t.trainNum)}"></div>`,
-          iconSize: [14, 14],
-          iconAnchor: [7, 7],
+          className: "rsx-marker-wrap",
+          html: `<div class="train-marker" title="${escapeHtml(t.routeName || t.trainNum)}">
+            <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+              <path fill="currentColor" d="M12 2c-4 0-7 1.5-7 4v8c0 1.1.9 2 2 2h1l-1.5 3h2l1-2h3l1 2h2L13 16h1c1.1 0 2-.9 2-2V6c0-2.5-3-4-7-4zm-3.5 12a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm7 0a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zM7 8h10v3H7V8z"/>
+            </svg>
+            <span class="tm-num">${label}</span>
+          </div>`,
+          iconSize: [36, 22],
+          iconAnchor: [18, 11],
         });
         const marker = L.marker([t.lat, t.lon], { icon, zIndexOffset: 1000 });
         marker.trainData = t;
@@ -433,18 +503,30 @@
           if (type === "yard") {
             return L.marker(latlng, {
               icon: L.divIcon({
-                className: "",
-                html: `<div class="yard-marker"></div>`,
-                iconSize: [12, 12],
-                iconAnchor: [6, 6],
+                className: "rsx-marker-wrap",
+                html: `<div class="yard-marker" title="Yard">
+                  <svg viewBox="0 0 24 24" width="12" height="12"><rect x="3" y="8" width="18" height="10" rx="1" fill="currentColor" opacity="0.9"/><rect x="6" y="4" width="4" height="4" fill="currentColor"/><rect x="14" y="4" width="4" height="4" fill="currentColor"/></svg>
+                </div>`,
+                iconSize: [24, 24],
+                iconAnchor: [12, 12],
+              }),
+            });
+          }
+          if (type === "crossing") {
+            return L.marker(latlng, {
+              icon: L.divIcon({
+                className: "rsx-marker-wrap",
+                html: `<div class="crossing-marker">✕</div>`,
+                iconSize: [16, 16],
+                iconAnchor: [8, 8],
               }),
             });
           }
           return L.circleMarker(latlng, {
-            radius: type === "crossing" ? 3 : 4,
-            color: type === "crossing" ? "#ffb020" : "#8b9bb4",
-            fillColor: type === "crossing" ? "#ffb020" : "#8b9bb4",
-            fillOpacity: 0.7,
+            radius: 3.5,
+            color: "#8b9bb4",
+            fillColor: "#8b9bb4",
+            fillOpacity: 0.75,
             weight: 1,
           });
         },
@@ -621,10 +703,14 @@
     state.layers.cameras.clearLayers();
     RAILCAMS.forEach((cam) => {
       const icon = L.divIcon({
-        className: "",
-        html: `<div class="camera-marker" title="${escapeHtml(cam.name)}"></div>`,
-        iconSize: [16, 16],
-        iconAnchor: [8, 8],
+        className: "rsx-marker-wrap",
+        html: `<div class="camera-marker" title="${escapeHtml(cam.name)}">
+          <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+            <path fill="currentColor" d="M17 10.5V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4z"/>
+          </svg>
+        </div>`,
+        iconSize: [28, 28],
+        iconAnchor: [14, 14],
       });
       const m = L.marker([cam.lat, cam.lon], { icon, zIndexOffset: 900 });
       m.on("click", () => showCameraMeta(cam));

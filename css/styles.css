@@ -471,23 +471,74 @@ html, body {
   color: var(--text-muted) !important;
 }
 
-/* Train marker */
-.train-marker {
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  background: var(--train);
-  border: 2px solid #0a0e14;
-  box-shadow: 0 0 10px var(--train), 0 0 4px #fff;
+/* Premium map markers */
+.rsx-marker-wrap {
+  background: transparent !important;
+  border: none !important;
 }
 
+.train-marker {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 6px 2px 4px;
+  background: linear-gradient(145deg, #0d1f18 0%, #0a1612 100%);
+  border: 1px solid #00d4aa;
+  border-radius: 6px;
+  color: #00d4aa;
+  box-shadow: 0 0 12px rgba(0, 212, 170, 0.45), 0 2px 6px rgba(0,0,0,0.5);
+  white-space: nowrap;
+  font-family: "JetBrains Mono", "SF Mono", ui-monospace, monospace;
+  line-height: 1;
+}
+.train-marker .tm-num {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: #e8fff8;
+}
+.train-marker svg { flex-shrink: 0; filter: drop-shadow(0 0 2px rgba(0,212,170,0.6)); }
+
+.camera-marker {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(145deg, #1a0a0e 0%, #12080a 100%);
+  border: 1.5px solid #ff4d6a;
+  border-radius: 8px;
+  color: #ff4d6a;
+  box-shadow: 0 0 14px rgba(255, 77, 106, 0.5), 0 2px 6px rgba(0,0,0,0.55);
+}
+.camera-marker svg { display: block; }
+
 .yard-marker {
-  width: 12px;
-  height: 12px;
-  border-radius: 2px;
-  background: var(--yard);
-  border: 1px solid #fff;
-  transform: rotate(45deg);
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(145deg, #1a1408 0%, #120e06 100%);
+  border: 1.5px solid #ffb020;
+  border-radius: 4px;
+  color: #ffb020;
+  box-shadow: 0 0 10px rgba(255, 176, 32, 0.4);
+}
+
+.crossing-marker {
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 800;
+  color: #ffb020;
+  background: rgba(20, 16, 8, 0.9);
+  border: 1px solid #ffb020;
+  border-radius: 3px;
+  box-shadow: 0 0 6px rgba(255, 176, 32, 0.35);
 }
 
 /* ========== FLOATING META WINDOW ========== */
