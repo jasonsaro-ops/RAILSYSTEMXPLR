@@ -20,6 +20,10 @@
       bridges: L.layerGroup(),
       transitStops: L.layerGroup(),
       transitRoutes: L.layerGroup(),
+      transitSubway: L.layerGroup(),
+      transitLightRail: L.layerGroup(),
+      transitCommuter: L.layerGroup(),
+      transitBus: L.layerGroup(),
       passengerLines: L.layerGroup(),
     },
     useClass1Only: true,
@@ -236,6 +240,18 @@
             state.layers.transitRoutes.addTo(state.map);
             loadTransitRoutes();
           } else state.map.removeLayer(state.layers.transitRoutes);
+        } else if (key === "transitSubway") {
+          if (el.checked) state.layers.transitSubway.addTo(state.map);
+          else state.map.removeLayer(state.layers.transitSubway);
+        } else if (key === "transitLightRail") {
+          if (el.checked) state.layers.transitLightRail.addTo(state.map);
+          else state.map.removeLayer(state.layers.transitLightRail);
+        } else if (key === "transitCommuter") {
+          if (el.checked) state.layers.transitCommuter.addTo(state.map);
+          else state.map.removeLayer(state.layers.transitCommuter);
+        } else if (key === "transitBus") {
+          if (el.checked) state.layers.transitBus.addTo(state.map);
+          else state.map.removeLayer(state.layers.transitBus);
         } else if (key === "passengerLines") {
           if (el.checked) {
             state.layers.passengerLines.addTo(state.map);
@@ -762,13 +778,21 @@
   }
 
   async function loadTransitRoutes() {
-    if (!state.layers.transitRoutes) {
-      state.layers.transitRoutes = L.layerGroup();
-    }
-    if (!state.map.hasLayer(state.layers.transitRoutes)) {
-      state.layers.transitRoutes.addTo(state.map);
-    }
-    // Commuter / rail routes from National Transit Map (route_type 0,1,2)
+    // Split NTM routes by GTFS route_type for ALL agencies nationwide:
+    // 0 = tram/light rail, 1 = subway/metro, 2 = rail/commuter, 3 = bus
+    const groups = {
+      0: state.layers.transitLightRail,
+      1: state.layers.transitSubway,
+      2: state.layers.transitCommuter,
+      3: state.layers.transitBus,
+    };
+    Object.values(groups).forEach((g) => {
+      if (g && state.map && !state.map.hasLayer(g)) g.addTo(state.map);
+    });
+    // also keep combined group for backward compat
+    if (!state.layers.transitRoutes) state.layers.transitRoutes = L.layerGroup();
+    if (!state.map.hasLayer(state.layers.transitRoutes)) state.layers.transitRoutes.addTo(state.map);
+
     const bounds = state.map.getBounds();
     const geom = {
       xmin: bounds.getWest(), ymin: bounds.getSouth(),
@@ -777,48 +801,62 @@
     };
     const params = new URLSearchParams({
       f: "geojson",
-      where: "route_type IN (0,1,2) OR route_type IN ('0','1','2')",
-      outFields: "OBJECTID,route_id,route_short_name,route_long_name,route_type,route_type_text,agency_id,ntd_id",
+      where: "1=1",
+      outFields: "OBJECTID,route_id,route_short_name,route_long_name,route_type,route_type_text,agency_id,ntd_id,route_color,route_text_color",
       geometry: JSON.stringify(geom),
       geometryType: "esriGeometryEnvelope",
       inSR: "4326",
       spatialRel: "esriSpatialRelIntersects",
       outSR: "4326",
-      resultRecordCount: "1500",
+      resultRecordCount: "2000",
       maxAllowableOffset: state.map.getZoom() < 9 ? "0.01" : "0.001",
     });
     try {
       const res = await fetch(`${CONFIG.NTM_ROUTES}/query?${params}`);
       const geojson = await res.json();
       if (!geojson.features) return;
-      // Clear only this layer group redraw for routes (lines change by viewport)
+
+      // clear mode groups + combined
+      Object.values(groups).forEach((g) => g && g.clearLayers());
       state.layers.transitRoutes.clearLayers();
-      L.geoJSON(geojson, {
-        style: (f) => {
-          const t = Number(f.properties.route_type);
-          const color = t === 1 ? "#a855f7" : t === 2 ? "#00c2ff" : t === 0 ? "#f472b6" : "#22d3ee";
-          return { color, weight: 3.5, opacity: 0.95 };
-        },
-        onEachFeature: (f, layer) => {
-          const p = f.properties;
-          const name = p.route_long_name || p.route_short_name || p.route_id || "Transit route";
-          layer.on("click", () => {
-            openMeta(name, `
-              <div class="section-title">Commuter / Transit Route</div>
-              <div class="kv"><span class="k">Name</span><span class="v">${escapeHtml(name)}</span></div>
-              <div class="kv"><span class="k">Short name</span><span class="v">${escapeHtml(p.route_short_name || "—")}</span></div>
-              <div class="kv"><span class="k">Type</span><span class="v">${escapeHtml(p.route_type_text || String(p.route_type))}</span></div>
-              <div class="kv"><span class="k">Agency / NTD</span><span class="v">${escapeHtml(String(p.agency_id || ""))} · ${escapeHtml(String(p.ntd_id || ""))}</span></div>
-              <p style="margin-top:0.5rem;font-size:0.72rem;color:var(--text-muted)">National Transit Map (BTS) — GTFS-based. Includes subway (1), rail/commuter (2), tram (0).</p>
-            `);
-          });
-        },
-      }).addTo(state.layers.transitRoutes);
-      toast(`Transit routes: ${geojson.features.length}`, "success");
+
+      const counts = { 0: 0, 1: 0, 2: 0, 3: 0, other: 0 };
+      const colors = { 0: "#f472b6", 1: "#a855f7", 2: "#00c2ff", 3: "#22c55e" };
+      const labels = { 0: "Light Rail / Tram", 1: "Subway / Metro", 2: "Commuter Rail", 3: "Bus" };
+
+      geojson.features.forEach((f) => {
+        const t = Number(f.properties.route_type);
+        const target = groups[t] || state.layers.transitRoutes;
+        const color = colors[t] != null ? colors[t] : "#94a3b8";
+        const weight = t === 3 ? 2 : 3.5;
+        if (counts[t] != null) counts[t]++; else counts.other++;
+
+        L.geoJSON(f, {
+          style: { color, weight, opacity: 0.9 },
+          onEachFeature: (feat, layer) => {
+            const p = feat.properties;
+            const name = p.route_long_name || p.route_short_name || p.route_id || "Transit route";
+            layer.on("click", () => {
+              openMeta(name, `
+                <div class="section-title">${labels[t] || "Transit Route"}</div>
+                <div class="kv"><span class="k">Name</span><span class="v">${escapeHtml(name)}</span></div>
+                <div class="kv"><span class="k">Short name</span><span class="v">${escapeHtml(p.route_short_name || "—")}</span></div>
+                <div class="kv"><span class="k">Type</span><span class="v">${escapeHtml(p.route_type_text || labels[t] || String(t))}</span></div>
+                <div class="kv"><span class="k">Agency / NTD</span><span class="v">${escapeHtml(String(p.agency_id || ""))} · ${escapeHtml(String(p.ntd_id || ""))}</span></div>
+                <p style="margin-top:0.5rem;font-size:0.72rem;color:var(--text-muted)">National Transit Map (BTS) — all agencies nationwide via GTFS.</p>
+              `);
+            });
+          },
+        }).addTo(target);
+      });
+
+      toast(`Transit: subway ${counts[1]} · light rail ${counts[0]} · commuter ${counts[2]} · bus ${counts[3]}`, "success");
     } catch (e) {
       console.error("transit routes", e);
+      toast("Transit routes load error — " + (e.message || "see console"), "error");
     }
   }
+
 
   async function loadPassengerLines() {
     if (!state.layers.passengerLines) state.layers.passengerLines = L.layerGroup();
@@ -1114,7 +1152,7 @@
       el.checked = true;
     });
     // Put layer groups on the map immediately
-    ["transitRoutes", "transitStops", "amtrakStations", "passengerLines"].forEach((key) => {
+    ["transitRoutes", "transitSubway", "transitLightRail", "transitCommuter", "transitBus", "transitStops", "amtrakStations", "passengerLines"].forEach((key) => {
       if (state.layers[key] && !state.map.hasLayer(state.layers[key])) {
         state.layers[key].addTo(state.map);
       }
