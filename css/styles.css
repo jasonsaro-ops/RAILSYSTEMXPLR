@@ -741,3 +741,25 @@ html, body {
 .leaflet-tooltip.rsx-tip::before {
   border-top-color: rgba(10, 14, 20, 0.92);
 }
+
+.amtrak-marker {
+  width: 26px; height: 26px;
+  display: flex; align-items: center; justify-content: center;
+  background: linear-gradient(145deg, #062028, #0a1620);
+  border: 1.5px solid #00c2ff;
+  border-radius: 50%;
+  color: #00c2ff;
+  font-size: 11px;
+  box-shadow: 0 0 12px rgba(0, 194, 255, 0.45);
+}
+.bridge-marker {
+  width: 20px; height: 20px;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(20, 14, 6, 0.9);
+  border: 1.5px solid #f59e0b;
+  border-radius: 4px;
+  color: #f59e0b;
+  font-size: 12px;
+  font-weight: 700;
+  box-shadow: 0 0 8px rgba(245, 158, 11, 0.35);
+}

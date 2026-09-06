@@ -6,6 +6,14 @@ const CONFIG = {
   RAIL_YARDS: "https://services.arcgis.com/xOi1kZaI0eWDREZv/arcgis/rest/services/NTAD_Rail_Yards/FeatureServer/0",
   GRADE_CROSSINGS: "https://services.arcgis.com/xOi1kZaI0eWDREZv/arcgis/rest/services/NTAD_Railroad_Grade_Crossings/FeatureServer/0",
 
+  // Additional public infrastructure (BTS / FRA NTAD — no API key)
+  AMTRAK_STATIONS: "https://services.arcgis.com/xOi1kZaI0eWDREZv/arcgis/rest/services/NTAD_Amtrak_Stations/FeatureServer/0",
+  RAIL_MILEPOSTS: "https://services.arcgis.com/xOi1kZaI0eWDREZv/arcgis/rest/services/NTAD_Rail_Mileposts/FeatureServer/0",
+  RAILROAD_BRIDGES: "https://services.arcgis.com/xOi1kZaI0eWDREZv/arcgis/rest/services/NTAD_Railroad_Bridges/FeatureServer/0",
+  NTM_STOPS: "https://services.arcgis.com/xOi1kZaI0eWDREZv/arcgis/rest/services/NTAD_National_Transit_Map_Stops/FeatureServer/0",
+  NTM_ROUTES: "https://services.arcgis.com/xOi1kZaI0eWDREZv/arcgis/rest/services/NTAD_National_Transit_Map_Routes/FeatureServer/0",
+  PASSENGER_RAIL_LINES: "https://services.arcgis.com/xOi1kZaI0eWDREZv/arcgis/rest/services/NTAD_North_American_Rail_Network_Lines_Passenger_Rail/FeatureServer/0",
+
   // Official Class I Freight Railroads View (BNSF, UP, CSX, NS, CN, CPKC only)
   // Same NARN source, pre-filtered ownership/trackage rights for Class I
   CLASS1_LINES: "https://services.arcgis.com/xOi1kZaI0eWDREZv/arcgis/rest/services/NTAD_North_American_Rail_Network_Lines_Class_I_Railroads/FeatureServer/0",

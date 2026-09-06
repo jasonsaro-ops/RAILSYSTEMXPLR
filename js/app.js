@@ -46,6 +46,8 @@
     loadRailsForView();
     loadTrains();
     loadCameras();
+    // Default passenger infra
+    loadAmtrakStations();
     setInterval(loadTrains, CONFIG.REFRESH_MS);
 
     // Re-query rails when map moves significantly
@@ -61,6 +63,18 @@
         if (y && y.checked) loadYards();
         if (c && c.checked) loadCrossings();
         if (n && n.checked) loadNodes();
+        const a = document.querySelector('input[data-layer="amtrakStations"]');
+        const mp = document.querySelector('input[data-layer="mileposts"]');
+        const br = document.querySelector('input[data-layer="bridges"]');
+        const ts = document.querySelector('input[data-layer="transitStops"]');
+        const tr = document.querySelector('input[data-layer="transitRoutes"]');
+        const pl = document.querySelector('input[data-layer="passengerLines"]');
+        if (a && a.checked) loadAmtrakStations();
+        if (mp && mp.checked) loadMileposts();
+        if (br && br.checked) loadBridges();
+        if (ts && ts.checked) loadTransitStops();
+        if (tr && tr.checked) loadTransitRoutes();
+        if (pl && pl.checked) loadPassengerLines();
       }, 500);
     });
 
@@ -190,6 +204,36 @@
             state.layers.nodes.addTo(state.map);
             loadNodes();
           } else state.map.removeLayer(state.layers.nodes);
+        } else if (key === "amtrakStations") {
+          if (el.checked) {
+            state.layers.amtrakStations.addTo(state.map);
+            loadAmtrakStations();
+          } else state.map.removeLayer(state.layers.amtrakStations);
+        } else if (key === "mileposts") {
+          if (el.checked) {
+            state.layers.mileposts.addTo(state.map);
+            loadMileposts();
+          } else state.map.removeLayer(state.layers.mileposts);
+        } else if (key === "bridges") {
+          if (el.checked) {
+            state.layers.bridges.addTo(state.map);
+            loadBridges();
+          } else state.map.removeLayer(state.layers.bridges);
+        } else if (key === "transitStops") {
+          if (el.checked) {
+            state.layers.transitStops.addTo(state.map);
+            loadTransitStops();
+          } else state.map.removeLayer(state.layers.transitStops);
+        } else if (key === "transitRoutes") {
+          if (el.checked) {
+            state.layers.transitRoutes.addTo(state.map);
+            loadTransitRoutes();
+          } else state.map.removeLayer(state.layers.transitRoutes);
+        } else if (key === "passengerLines") {
+          if (el.checked) {
+            state.layers.passengerLines.addTo(state.map);
+            loadPassengerLines();
+          } else state.map.removeLayer(state.layers.passengerLines);
         } else {
           applyRailVisibility();
         }
@@ -676,6 +720,256 @@
       ${rows || "<em>Named facility</em>"}
       <div class="section-title">Attributes</div>
       ${extra || ""}
+    `);
+  }
+
+
+  async function loadAmtrakStations() {
+    await loadNamedPointLayer(CONFIG.AMTRAK_STATIONS, state.layers.amtrakStations, "amtrakStations", (p) => {
+      return p.Name || p.StationName || p.STNNAME || p.Code || "Amtrak Station";
+    }, "amtrak");
+  }
+
+  async function loadMileposts() {
+    if (state.map.getZoom() < 10) return;
+    await loadNamedPointLayer(CONFIG.RAIL_MILEPOSTS, state.layers.mileposts, "mileposts", (p) => {
+      const mp = p.MILEPOST != null ? "MP " + p.MILEPOST : "Milepost";
+      const sub = p.SUBDIV || "";
+      return sub ? mp + " · " + sub : mp;
+    }, "milepost");
+  }
+
+  async function loadBridges() {
+    if (state.map.getZoom() < 9) return;
+    await loadNamedPointLayer(CONFIG.RAILROAD_BRIDGES, state.layers.bridges, "bridges", (p) => {
+      return p.Name || p.BRIDGE_NAME || p.RROwner || p.RROWNER || "Railroad Bridge";
+    }, "bridge");
+  }
+
+  async function loadTransitStops() {
+    if (state.map.getZoom() < 10) return;
+    // Prefer rail / subway / tram stops when location_type or route info available
+    await loadNamedPointLayer(CONFIG.NTM_STOPS, state.layers.transitStops, "transitStops", (p) => {
+      return p.stop_name || p.STOP_NAME || p.stop_id || "Transit Stop";
+    }, "transit", null);
+  }
+
+  async function loadTransitRoutes() {
+    // Commuter / rail routes from National Transit Map (route_type 0,1,2)
+    const bounds = state.map.getBounds();
+    const geom = {
+      xmin: bounds.getWest(), ymin: bounds.getSouth(),
+      xmax: bounds.getEast(), ymax: bounds.getNorth(),
+      spatialReference: { wkid: 4326 },
+    };
+    const params = new URLSearchParams({
+      f: "geojson",
+      where: "route_type IN (0,1,2)",
+      outFields: "OBJECTID,route_id,route_short_name,route_long_name,route_type,route_type_text,agency_id,ntd_id",
+      geometry: JSON.stringify(geom),
+      geometryType: "esriGeometryEnvelope",
+      inSR: "4326",
+      spatialRel: "esriSpatialRelIntersects",
+      outSR: "4326",
+      resultRecordCount: "1500",
+      maxAllowableOffset: state.map.getZoom() < 9 ? "0.01" : "0.001",
+    });
+    try {
+      const res = await fetch(`${CONFIG.NTM_ROUTES}/query?${params}`);
+      const geojson = await res.json();
+      if (!geojson.features) return;
+      // Clear only this layer group redraw for routes (lines change by viewport)
+      state.layers.transitRoutes.clearLayers();
+      L.geoJSON(geojson, {
+        style: (f) => {
+          const t = f.properties.route_type;
+          const color = t === 1 ? "#a855f7" : t === 2 ? "#00c2ff" : "#f472b6";
+          return { color, weight: 2.5, opacity: 0.85 };
+        },
+        onEachFeature: (f, layer) => {
+          const p = f.properties;
+          const name = p.route_long_name || p.route_short_name || p.route_id || "Transit route";
+          layer.on("click", () => {
+            openMeta(name, `
+              <div class="section-title">Commuter / Transit Route</div>
+              <div class="kv"><span class="k">Name</span><span class="v">${escapeHtml(name)}</span></div>
+              <div class="kv"><span class="k">Short name</span><span class="v">${escapeHtml(p.route_short_name || "—")}</span></div>
+              <div class="kv"><span class="k">Type</span><span class="v">${escapeHtml(p.route_type_text || String(p.route_type))}</span></div>
+              <div class="kv"><span class="k">Agency / NTD</span><span class="v">${escapeHtml(String(p.agency_id || ""))} · ${escapeHtml(String(p.ntd_id || ""))}</span></div>
+              <p style="margin-top:0.5rem;font-size:0.72rem;color:var(--text-muted)">National Transit Map (BTS) — GTFS-based. Includes subway (1), rail/commuter (2), tram (0).</p>
+            `);
+          });
+        },
+      }).addTo(state.layers.transitRoutes);
+      toast(`Transit routes: ${geojson.features.length}`, "success");
+    } catch (e) {
+      console.error("transit routes", e);
+    }
+  }
+
+  async function loadPassengerLines() {
+    const bounds = state.map.getBounds();
+    const geom = {
+      xmin: bounds.getWest(), ymin: bounds.getSouth(),
+      xmax: bounds.getEast(), ymax: bounds.getNorth(),
+      spatialReference: { wkid: 4326 },
+    };
+    const params = new URLSearchParams({
+      f: "geojson",
+      where: "1=1",
+      outFields: "OBJECTID,RROWNER1,RROWNER2,PASSNGR,SUBDIV,STATEAB,TRACKS,FRAARCID",
+      geometry: JSON.stringify(geom),
+      geometryType: "esriGeometryEnvelope",
+      inSR: "4326",
+      spatialRel: "esriSpatialRelIntersects",
+      outSR: "4326",
+      resultRecordCount: "2000",
+      maxAllowableOffset: state.map.getZoom() < 8 ? "0.02" : "0.002",
+    });
+    try {
+      const res = await fetch(`${CONFIG.PASSENGER_RAIL_LINES}/query?${params}`);
+      const geojson = await res.json();
+      if (!geojson.features) return;
+      state.layers.passengerLines.clearLayers();
+      L.geoJSON(geojson, {
+        style: { color: "#00c2ff", weight: 3, opacity: 0.9 },
+        onEachFeature: (f, layer) => {
+          layer.on("click", () => showRailMeta(f.properties));
+        },
+      }).addTo(state.layers.passengerLines);
+      toast(`Passenger rail lines: ${geojson.features.length}`, "success");
+    } catch (e) {
+      console.error("passenger lines", e);
+    }
+  }
+
+  async function loadNamedPointLayer(endpoint, layerGroup, cacheKey, titleFn, kind, whereClause) {
+    if (!endpoint) return;
+    const bounds = state.map.getBounds();
+    const geom = {
+      xmin: bounds.getWest(), ymin: bounds.getSouth(),
+      xmax: bounds.getEast(), ymax: bounds.getNorth(),
+      spatialReference: { wkid: 4326 },
+    };
+    const params = new URLSearchParams({
+      f: "geojson",
+      where: whereClause || "1=1",
+      outFields: "*",
+      geometry: JSON.stringify(geom),
+      geometryType: "esriGeometryEnvelope",
+      inSR: "4326",
+      spatialRel: "esriSpatialRelIntersects",
+      outSR: "4326",
+      resultRecordCount: "2000",
+    });
+    try {
+      const res = await fetch(`${endpoint}/query?${params}`);
+      const geojson = await res.json();
+      if (!geojson.features) return;
+      const cache = state.pointCache[cacheKey] || (state.pointCache[cacheKey] = new Map());
+      let added = 0;
+      geojson.features.forEach((feature) => {
+        if (!feature.geometry || !feature.geometry.coordinates) return;
+        const coords = feature.geometry.coordinates;
+        // Handle Point
+        let lon, lat;
+        if (feature.geometry.type === "Point") {
+          lon = coords[0]; lat = coords[1];
+        } else return;
+        const p = feature.properties || {};
+        const key = String(p.OBJECTID ?? p.Code ?? p.stop_id ?? (lon + "," + lat));
+        if (cache.has(key)) return;
+        const title = titleFn(p);
+        const marker = infraMarker([lat, lon], kind, title);
+        marker.on("click", () => showInfraMeta(kind, title, p));
+        marker.addTo(layerGroup);
+        cache.set(key, marker);
+        added++;
+      });
+      if (added) toast(`${cacheKey}: +${added}`, "success");
+    } catch (e) {
+      console.error(cacheKey, e);
+    }
+  }
+
+  function infraMarker(latlng, kind, title) {
+    const colors = {
+      amtrak: "#00c2ff",
+      milepost: "#94a3b8",
+      bridge: "#f59e0b",
+      transit: "#a855f7",
+    };
+    const c = colors[kind] || "#8b9bb4";
+    if (kind === "amtrak") {
+      return L.marker(latlng, {
+        icon: L.divIcon({
+          className: "rsx-marker-wrap",
+          html: `<div class="amtrak-marker" title="${escapeHtml(title)}"><i class="fa-solid fa-train"></i></div>`,
+          iconSize: [26, 26],
+          iconAnchor: [13, 13],
+        }),
+        zIndexOffset: 800,
+      });
+    }
+    if (kind === "bridge") {
+      return L.marker(latlng, {
+        icon: L.divIcon({
+          className: "rsx-marker-wrap",
+          html: `<div class="bridge-marker" title="${escapeHtml(title)}">▭</div>`,
+          iconSize: [20, 20],
+          iconAnchor: [10, 10],
+        }),
+      });
+    }
+    if (kind === "milepost") {
+      return L.circleMarker(latlng, {
+        radius: 3, color: c, fillColor: c, fillOpacity: 0.8, weight: 1,
+      }).bindTooltip(title, { className: "rsx-tip", direction: "top" });
+    }
+    return L.circleMarker(latlng, {
+      radius: 4, color: c, fillColor: c, fillOpacity: 0.85, weight: 1,
+    }).bindTooltip(title, { className: "rsx-tip", direction: "top" });
+  }
+
+  function showInfraMeta(kind, title, p) {
+    if (kind === "amtrak") {
+      openMeta(title, `
+        <div class="section-title">Amtrak Station</div>
+        <div class="kv"><span class="k">Name</span><span class="v">${escapeHtml(p.Name || p.StationName || "—")}</span></div>
+        <div class="kv"><span class="k">Code</span><span class="v">${escapeHtml(p.Code || p.STNCODE || "—")}</span></div>
+        <div class="kv"><span class="k">Address</span><span class="v">${escapeHtml([p.Address1, p.City, p.State, p.ZipCode].filter(Boolean).join(", ") || "—")}</span></div>
+        <div class="kv"><span class="k">Type</span><span class="v">${escapeHtml(p.StnType || p.StaType || "—")}</span></div>
+        <p style="margin-top:0.5rem;font-size:0.72rem;color:var(--text-muted)">Source: BTS NTAD Amtrak Stations (from Amtrak).</p>
+      `);
+      return;
+    }
+    if (kind === "bridge") {
+      const keys = ["Name","RROwner","RROWNER","Subdivision","Rail_MilePost","Bridge_Type","City","State","County"];
+      const rows = keys.filter((k) => p[k] != null && p[k] !== "").map((k) =>
+        `<div class="kv"><span class="k">${escapeHtml(k)}</span><span class="v">${escapeHtml(String(p[k]))}</span></div>`
+      ).join("");
+      openMeta(title, `<div class="section-title">Railroad Bridge</div>${rows || "<em>Bridge structure</em>"}
+        <p style="margin-top:0.5rem;font-size:0.72rem;color:var(--text-muted)">Source: FRA / BTS NTAD Railroad Bridges (approximate inventory).</p>`);
+      return;
+    }
+    if (kind === "milepost") {
+      openMeta(title, `
+        <div class="section-title">Rail Milepost</div>
+        <div class="kv"><span class="k">Milepost</span><span class="v">${escapeHtml(String(p.MILEPOST ?? "—"))}</span></div>
+        <div class="kv"><span class="k">Subdivision</span><span class="v">${escapeHtml(p.SUBDIV || "—")}</span></div>
+        <div class="kv"><span class="k">State</span><span class="v">${escapeHtml(p.STATEAB || "—")}</span></div>
+      `);
+      return;
+    }
+    // transit stop
+    openMeta(title, `
+      <div class="section-title">Transit / Commuter Stop</div>
+      <div class="kv"><span class="k">Name</span><span class="v">${escapeHtml(p.stop_name || "—")}</span></div>
+      <div class="kv"><span class="k">Stop ID</span><span class="v">${escapeHtml(String(p.stop_id || "—"))}</span></div>
+      <div class="kv"><span class="k">Code</span><span class="v">${escapeHtml(p.stop_code || "—")}</span></div>
+      <div class="kv"><span class="k">NTD / Feed</span><span class="v">${escapeHtml(String(p.ntd_id || ""))} · ${escapeHtml(String(p.feed_id || ""))}</span></div>
+      <div class="kv"><span class="k">Description</span><span class="v">${escapeHtml(p.stop_desc || "—")}</span></div>
+      <p style="margin-top:0.5rem;font-size:0.72rem;color:var(--text-muted)">National Transit Map (BTS) — GTFS stops (includes rail, subway, bus, etc.).</p>
     `);
   }
 
