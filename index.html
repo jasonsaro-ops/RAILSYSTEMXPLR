@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RailSystemXplr — US Railroad Network Explorer</title>
+  <meta name="description" content="RailSystemXplr — professional US railroad network explorer dashboard with Class I layers, near-real-time Amtrak positions, yards, crossings and searchable infrastructure." />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
+  <link rel="stylesheet" href="css/styles.css" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🚂</text></svg>" />
+</head>
+<body>
+  <div id="app">
+    <!-- Top Command Bar -->
+    <header id="command-bar">
+      <div class="brand">
+        <div class="logo">
+          <i class="fa-solid fa-train"></i>
+        </div>
+        <div class="titles">
+          <h1>RAILSYSTEMXPLR</h1>
+          <span class="subtitle">US Railroad Network Explorer · Continental United States</span>
+        </div>
+      </div>
+
+      <div class="status-cluster">
+        <div class="status-item" id="train-count-box">
+          <span class="label">ACTIVE TRAINS</span>
+          <span class="value" id="train-count">—</span>
+        </div>
+        <div class="status-item">
+          <span class="label">LAST REFRESH</span>
+          <span class="value" id="last-refresh">—</span>
+        </div>
+        <div class="status-item">
+          <span class="label">DATA AGE</span>
+          <span class="value" id="data-age">—</span>
+        </div>
+        <div class="live-indicator" id="live-indicator" title="Auto-refresh every 2 minutes">
+          <span class="pulse"></span> LIVE
+        </div>
+      </div>
+
+      <div class="actions">
+        <div class="search-wrap">
+          <i class="fa-solid fa-magnifying-glass"></i>
+          <input type="search" id="global-search" placeholder="Search train #, station, railroad, subdivision…" autocomplete="off" />
+          <div id="search-results" class="search-results hidden"></div>
+        </div>
+        <button id="btn-refresh" class="btn primary" title="Force refresh">
+          <i class="fa-solid fa-rotate"></i>
+        </button>
+        <button id="btn-fullscreen" class="btn" title="Toggle fullscreen">
+          <i class="fa-solid fa-expand"></i>
+        </button>
+      </div>
+    </header>
+
+    <div id="main">
+      <!-- Left Control Panel -->
+      <aside id="control-panel">
+        <div class="panel-section">
+          <h2><i class="fa-solid fa-layer-group"></i> Layers</h2>
+
+          <div class="layer-group">
+            <h3>Basemap</h3>
+            <label class="radio-row"><input type="radio" name="basemap" value="dark" checked /> Dark Ops</label>
+            <label class="radio-row"><input type="radio" name="basemap" value="osm" /> Street (OSM)</label>
+            <label class="radio-row"><input type="radio" name="basemap" value="satellite" /> Satellite</label>
+          </div>
+
+          <div class="layer-group">
+            <h3>Class I Freight</h3>
+            <label class="check-row"><input type="checkbox" data-layer="bnsf" checked /> <span class="swatch bnsf"></span> BNSF</label>
+            <label class="check-row"><input type="checkbox" data-layer="up" checked /> <span class="swatch up"></span> Union Pacific</label>
+            <label class="check-row"><input type="checkbox" data-layer="csx" checked /> <span class="swatch csx"></span> CSX</label>
+            <label class="check-row"><input type="checkbox" data-layer="ns" checked /> <span class="swatch ns"></span> Norfolk Southern</label>
+            <label class="check-row"><input type="checkbox" data-layer="cn" checked /> <span class="swatch cn"></span> Canadian National</label>
+            <label class="check-row"><input type="checkbox" data-layer="cpkc" checked /> <span class="swatch cpkc"></span> CPKC</label>
+          </div>
+
+          <div class="layer-group">
+            <h3>Passenger &amp; Other</h3>
+            <label class="check-row"><input type="checkbox" data-layer="amtrak" checked /> <span class="swatch amtrak"></span> Amtrak / Passenger</label>
+            <label class="check-row"><input type="checkbox" data-layer="other" checked /> <span class="swatch other"></span> Class II / III / Shortline</label>
+          </div>
+
+          <div class="layer-group">
+            <h3>Infrastructure</h3>
+            <label class="check-row"><input type="checkbox" data-layer="yards" /> Rail Yards</label>
+            <label class="check-row"><input type="checkbox" data-layer="crossings" /> Grade Crossings</label>
+            <label class="check-row"><input type="checkbox" data-layer="nodes" /> Network Nodes</label>
+            <label class="check-row"><input type="checkbox" data-layer="trains" checked /> Live Trains (Amtrak family)</label>
+            <label class="check-row"><input type="checkbox" data-layer="cameras" checked /> Live Railcams</label>
+            <label class="check-row"><input type="checkbox" data-layer="class1only" /> Class I only (official view)</label>
+          </div>
+
+          <div class="layer-group">
+            <h3>Commuter / Transit</h3>
+            <p class="hint">SEPTA · MTA · LIRR · Metra · Metrolink · etc. Passenger-flagged NARN + BTS National Transit Map.</p>
+            <a class="ext-link" href="https://geodata.bts.gov/datasets/usdot::national-transit-map-routes/about" target="_blank" rel="noopener">National Transit Map ↗</a>
+          </div>
+
+          <div class="layer-group">
+            <h3>Filters</h3>
+            <label class="check-row"><input type="checkbox" id="filter-passenger-only" /> Passenger lines only</label>
+            <label class="check-row"><input type="checkbox" id="filter-stracnet" /> STRACNET only</label>
+            <div class="select-row">
+              <label>State focus</label>
+              <select id="state-filter">
+                <option value="">All States</option>
+                <option value="CA">California</option>
+                <option value="TX">Texas</option>
+                <option value="IL">Illinois</option>
+                <option value="NY">New York</option>
+                <option value="PA">Pennsylvania</option>
+                <option value="OH">Ohio</option>
+                <option value="FL">Florida</option>
+                <option value="GA">Georgia</option>
+                <option value="NC">North Carolina</option>
+                <option value="VA">Virginia</option>
+                <option value="WA">Washington</option>
+                <option value="OR">Oregon</option>
+                <option value="CO">Colorado</option>
+                <option value="AZ">Arizona</option>
+                <option value="NM">New Mexico</option>
+                <option value="KS">Kansas</option>
+                <option value="MO">Missouri</option>
+                <option value="IN">Indiana</option>
+                <option value="MI">Michigan</option>
+                <option value="MN">Minnesota</option>
+                <option value="WI">Wisconsin</option>
+                <option value="IA">Iowa</option>
+                <option value="NE">Nebraska</option>
+                <option value="OK">Oklahoma</option>
+                <option value="AR">Arkansas</option>
+                <option value="LA">Louisiana</option>
+                <option value="MS">Mississippi</option>
+                <option value="AL">Alabama</option>
+                <option value="TN">Tennessee</option>
+                <option value="KY">Kentucky</option>
+                <option value="WV">West Virginia</option>
+                <option value="MD">Maryland</option>
+                <option value="NJ">New Jersey</option>
+                <option value="CT">Connecticut</option>
+                <option value="MA">Massachusetts</option>
+                <option value="NH">New Hampshire</option>
+                <option value="VT">Vermont</option>
+                <option value="ME">Maine</option>
+                <option value="SC">South Carolina</option>
+                <option value="ND">North Dakota</option>
+                <option value="SD">South Dakota</option>
+                <option value="MT">Montana</option>
+                <option value="ID">Idaho</option>
+                <option value="UT">Utah</option>
+                <option value="NV">Nevada</option>
+                <option value="WY">Wyoming</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel-section legend">
+          <h2><i class="fa-solid fa-map"></i> Legend</h2>
+          <div class="legend-item"><span class="line bnsf"></span> BNSF</div>
+          <div class="legend-item"><span class="line up"></span> Union Pacific</div>
+          <div class="legend-item"><span class="line csx"></span> CSX</div>
+          <div class="legend-item"><span class="line ns"></span> Norfolk Southern</div>
+          <div class="legend-item"><span class="line cn"></span> Canadian National</div>
+          <div class="legend-item"><span class="line cpkc"></span> CPKC</div>
+          <div class="legend-item"><span class="line amtrak"></span> Amtrak / Passenger</div>
+          <div class="legend-item"><span class="line other"></span> Other / Shortline</div>
+          <div class="legend-item"><span class="dot train"></span> Live Train</div>
+          <div class="legend-item"><span class="dot yard"></span> Rail Yard</div>
+          <div class="legend-item"><span class="dot camera"></span> Live Railcam</div>
+        </div>
+
+        <div class="panel-section resources">
+          <h2><i class="fa-solid fa-link"></i> Resources</h2>
+          <a class="ext-link" href="https://www.askrail.us/" target="_blank" rel="noopener">AskRail (first responders) ↗</a>
+          <a class="ext-link" href="https://virtualrailfan.com/cam-locations/" target="_blank" rel="noopener">Virtual Railfan cams ↗</a>
+          <a class="ext-link" href="https://www.youtube.com/@VirtualRailfan/streams" target="_blank" rel="noopener">VRF YouTube live ↗</a>
+          <a class="ext-link" href="https://www.up.com/aboutup/reference/maps/" target="_blank" rel="noopener">Union Pacific maps ↗</a>
+          <a class="ext-link" href="https://railroads.dot.gov/rail-network-development/maps-and-data/maps-geographic-information-system/maps-geographic" target="_blank" rel="noopener">FRA GIS maps ↗</a>
+          <a class="ext-link" href="https://www.ntsb.gov/investigations/AccidentReports/Pages/railroad.aspx" target="_blank" rel="noopener">NTSB rail reports ↗</a>
+          <a class="ext-link" href="https://geodata.bts.gov/datasets/usdot::north-american-rail-network-lines/about" target="_blank" rel="noopener">BTS NARN full dataset ↗</a>
+          <button type="button" id="btn-emergency" class="btn-text">Class I emergency contacts</button>
+        </div>
+
+        <div class="panel-footer">
+          <p>Data: FRA / BTS NARN · Amtraker · curated public railcams<br />Refresh: 2 min · Public domain rail network</p>
+          <p class="note">Freight live positions &amp; AskRail consist data are restricted. Camera embeds use public YouTube streams when available.</p>
+        </div>
+      </aside>
+
+      <!-- Map -->
+      <div id="map-container">
+        <div id="map"></div>
+        <div id="map-overlay-info">
+          <span id="zoom-level">Z —</span>
+          <span id="coords">—</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Floating metadata window (hidden by default) -->
+    <div id="meta-window" class="meta-window hidden">
+      <div class="meta-header">
+        <h3 id="meta-title">Feature</h3>
+        <button id="meta-close" aria-label="Close"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div id="meta-body" class="meta-body"></div>
+    </div>
+
+    <!-- Toast -->
+    <div id="toast" class="toast hidden"></div>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  <script src="js/config.js"></script>
+  <script src="js/cameras.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
