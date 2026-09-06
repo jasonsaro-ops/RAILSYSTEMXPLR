@@ -27,6 +27,7 @@
       passengerLines: L.layerGroup(),
     },
     useClass1Only: false,
+    activeState: null, // two-letter state focus (PowerGrid-style region)
     basemaps: {},
     activeBasemap: "dark",
     railCache: new Map(), // key = feature OBJECTID → layer
@@ -201,8 +202,7 @@
         } else if (key === "class1only") {
           state.useClass1Only = el.checked;
           // Clear cache so next load uses correct endpoint coverage
-          state.railCache.forEach((lyr) => state.layers.rails.removeLayer(lyr));
-          state.railCache.clear();
+          clearRailCache();
           loadRailsForView();
         } else if (key === "yards") {
           if (el.checked) {
@@ -271,14 +271,17 @@
     document.getElementById("filter-stracnet").addEventListener("change", applyRailVisibility);
 
     document.getElementById("state-filter").addEventListener("change", (e) => {
-      const st = e.target.value;
+      const st = e.target.value || null;
+      state.activeState = st;
+      clearRailCache();
       if (st && CONFIG.STATE_BOUNDS[st]) {
         state.map.fitBounds(CONFIG.STATE_BOUNDS[st], { padding: [40, 40] });
       } else {
         state.map.setView(CONFIG.DEFAULT_CENTER, CONFIG.DEFAULT_ZOOM);
       }
-      // reload rails for new view
-      setTimeout(loadRailsForView, 300);
+      // PowerGrid-style: load this state's rail "region" only
+      setTimeout(loadRailsForView, 350);
+      toast(st ? ("Loading " + st + " rail network…") : "Nationwide view", "success");
     });
   }
 
@@ -372,27 +375,41 @@
     };
   }
 
+  function clearRailCache() {
+    state.railCache.forEach((lyr) => {
+      try { state.layers.rails.removeLayer(lyr); } catch (e) {}
+    });
+    state.railCache.clear();
+  }
+
   async function loadRailsForView() {
     if (state.queryInFlight) return;
+    if (!state.map) return;
+    // Ensure rails group is on the map
+    if (state.layers.rails && !state.map.hasLayer(state.layers.rails)) {
+      state.layers.rails.addTo(state.map);
+    }
+
     const bounds = state.map.getBounds();
     const zoom = state.map.getZoom();
     state.queryInFlight = true;
 
-    // Zoom-aware strategy (ArcGIS maxRecordCount = 2000)
-    // Low zoom → Class I official view + simplified geometry (full national system map)
-    // Mid/high zoom → full NARN clipped to viewport
-    // National overview: Class I system map. Local zoom: full NARN so shortlines + trackage rights appear.
-    const forceClass1 = zoom < 7 && state.useClass1Only;
+    // PowerGrid-style: state focus = server-side STATEAB filter (like loading one region file)
+    // National low zoom = Class I system map with simplification
+    // Local zoom = full NARN in viewport
+    const st = state.activeState;
+    const forceClass1 = !st && zoom < 7 && state.useClass1Only;
     const endpoint = forceClass1 && CONFIG.CLASS1_LINES
       ? CONFIG.CLASS1_LINES
       : CONFIG.NARN_LINES;
 
-    // Geometry simplification in map units (degrees) — faster draw at national view
     let maxOffset = 0;
-    if (zoom <= 5) maxOffset = 0.08;
-    else if (zoom <= 7) maxOffset = 0.03;
-    else if (zoom <= 9) maxOffset = 0.008;
-    else if (zoom <= 11) maxOffset = 0.002;
+    if (!st) {
+      if (zoom <= 5) maxOffset = 0.08;
+      else if (zoom <= 7) maxOffset = 0.03;
+      else if (zoom <= 9) maxOffset = 0.008;
+      else if (zoom <= 11) maxOffset = 0.002;
+    }
 
     const geom = {
       xmin: bounds.getWest(),
@@ -401,58 +418,57 @@
       ymax: bounds.getNorth(),
       spatialReference: { wkid: 4326 },
     };
-
-    // At very low zoom expand envelope slightly so edges aren't clipped
-    if (zoom <= 5) {
+    if (zoom <= 5 && !st) {
       const pad = 2;
       geom.xmin -= pad; geom.xmax += pad;
       geom.ymin -= pad; geom.ymax += pad;
     }
 
+    // State filter — equivalent to loading a per-state "file" from the server
+    let where = "1=1";
+    if (st) {
+      const safe = String(st).replace(/[^A-Za-z]/g, "").toUpperCase().slice(0, 2);
+      if (safe.length === 2) where = "STATEAB='" + safe + "'";
+    }
+
     try {
-      // Fetch up to 2 pages when zoomed in enough to need density
-      const pages = zoom >= 8 ? 2 : 1;
+      const pages = (st || zoom >= 8) ? 3 : 1;
       let allFeatures = [];
 
       for (let page = 0; page < pages; page++) {
         const params = new URLSearchParams({
           f: "geojson",
-          where: "1=1",
+          where: where,
           outFields: "OBJECTID,RROWNER1,RROWNER2,RROWNER3,TRKRGHTS1,TRKRGHTS2,TRKRGHTS3,PASSNGR,STRACNET,TRACKS,YARDNAME,SUBDIV,MILES,STATEAB,FRAARCID",
           geometry: JSON.stringify(geom),
           geometryType: "esriGeometryEnvelope",
           inSR: "4326",
           spatialRel: "esriSpatialRelIntersects",
           outSR: "4326",
-          resultRecordCount: String(CONFIG.MAX_RECORDS),
-          resultOffset: String(page * CONFIG.MAX_RECORDS),
+          resultRecordCount: String(CONFIG.MAX_RECORDS || 2000),
+          resultOffset: String(page * (CONFIG.MAX_RECORDS || 2000)),
         });
-        if (maxOffset > 0) {
-          params.set("maxAllowableOffset", String(maxOffset));
-        }
+        if (maxOffset > 0) params.set("maxAllowableOffset", String(maxOffset));
 
-        const url = `${endpoint}/query?${params.toString()}`;
-        const res = await fetch(url);
+        const res = await fetch(endpoint + "/query?" + params.toString());
         if (!res.ok) throw new Error("NARN query failed: " + res.status);
         const geojson = await res.json();
         if (geojson.error) throw new Error(geojson.error.message || "ArcGIS error");
         if (!geojson.features || !geojson.features.length) break;
         allFeatures = allFeatures.concat(geojson.features);
-        if (geojson.features.length < CONFIG.MAX_RECORDS) break;
+        if (geojson.features.length < (CONFIG.MAX_RECORDS || 2000)) break;
       }
 
       if (!allFeatures.length) {
-        toast("No rail segments in view", "error");
+        toast(st ? ("No rail segments in " + st) : "No rail segments in view", "error");
         return;
       }
 
       let added = 0;
-
-      // PowerGrid-style: cache ALL segments regardless of owner checkbox; visibility is filter-only
       allFeatures.forEach((feature) => {
         const oid = feature.properties?.OBJECTID ?? feature.properties?.FRAARCID;
         if (oid == null) return;
-        const key = String(oid);
+        const key = (st ? st + ":" : "") + String(oid);
         if (state.railCache.has(key)) return;
 
         const cls = classifyOwner(feature.properties);
@@ -474,11 +490,11 @@
         added++;
       });
 
-      // Re-apply owner filter visibility on cached layers
       applyRailVisibility();
-
-      const mode = forceClass1 ? "Class I system map" : "Full NARN";
-      toast(`${mode}: +${added} new / ${state.railCache.size} cached`, "success");
+      const mode = st
+        ? ("State " + st)
+        : (forceClass1 ? "Class I system map" : "Full NARN");
+      toast(mode + ": +" + added + " new / " + state.railCache.size + " cached", "success");
     } catch (err) {
       console.error(err);
       toast("Rail network load error — " + (err.message || "see console"), "error");

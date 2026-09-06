@@ -37,3 +37,14 @@ See `typescript-app/` — `npm install && npm run dev`.
 - **Passenger (Amtrak / Brightline / Via):** Amtraker public API, ~2 min refresh.
 - **Class I freight (BNSF, UP, CSX, NS, CN, CPKC):** No public live GPS feed. TrainMon and similar enthusiast sites do not publish an open API for Class I positions. Carriers treat movements as proprietary. This app shows **system maps** (FRA/BTS NARN) for those railroads, not live freight dots.
 - Soft-refresh: click the **RAILSYSTEMXPLR** logo or the refresh button.
+
+## Performance model (PowerGrid-style)
+
+Rather than shipping 50 large static GeoJSON files (tens of MB+), rails load **by region**:
+
+- **State focus** → server filter `STATEAB='XX'` + viewport (same idea as a per-state file, live from FRA/BTS)
+- **National low zoom** → Class I system map with geometry simplification
+- **Local zoom** → full NARN in the map envelope
+- **OBJECTID cache** keeps features while panning (like PowerGrid)
+
+This stays fast on GitHub Pages without a huge static asset pack.
