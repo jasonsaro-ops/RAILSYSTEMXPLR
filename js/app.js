@@ -15,6 +15,12 @@
       crossings: L.layerGroup(),
       nodes: L.layerGroup(),
       cameras: L.layerGroup(),
+      amtrakStations: L.layerGroup(),
+      mileposts: L.layerGroup(),
+      bridges: L.layerGroup(),
+      transitStops: L.layerGroup(),
+      transitRoutes: L.layerGroup(),
+      passengerLines: L.layerGroup(),
     },
     useClass1Only: true,
     basemaps: {},
@@ -756,6 +762,12 @@
   }
 
   async function loadTransitRoutes() {
+    if (!state.layers.transitRoutes) {
+      state.layers.transitRoutes = L.layerGroup();
+    }
+    if (!state.map.hasLayer(state.layers.transitRoutes)) {
+      state.layers.transitRoutes.addTo(state.map);
+    }
     // Commuter / rail routes from National Transit Map (route_type 0,1,2)
     const bounds = state.map.getBounds();
     const geom = {
@@ -765,7 +777,7 @@
     };
     const params = new URLSearchParams({
       f: "geojson",
-      where: "route_type IN (0,1,2)",
+      where: "route_type IN (0,1,2) OR route_type IN ('0','1','2')",
       outFields: "OBJECTID,route_id,route_short_name,route_long_name,route_type,route_type_text,agency_id,ntd_id",
       geometry: JSON.stringify(geom),
       geometryType: "esriGeometryEnvelope",
@@ -783,9 +795,9 @@
       state.layers.transitRoutes.clearLayers();
       L.geoJSON(geojson, {
         style: (f) => {
-          const t = f.properties.route_type;
-          const color = t === 1 ? "#a855f7" : t === 2 ? "#00c2ff" : "#f472b6";
-          return { color, weight: 2.5, opacity: 0.85 };
+          const t = Number(f.properties.route_type);
+          const color = t === 1 ? "#a855f7" : t === 2 ? "#00c2ff" : t === 0 ? "#f472b6" : "#22d3ee";
+          return { color, weight: 3.5, opacity: 0.95 };
         },
         onEachFeature: (f, layer) => {
           const p = f.properties;
@@ -809,6 +821,10 @@
   }
 
   async function loadPassengerLines() {
+    if (!state.layers.passengerLines) state.layers.passengerLines = L.layerGroup();
+    if (!state.map.hasLayer(state.layers.passengerLines)) {
+      state.layers.passengerLines.addTo(state.map);
+    }
     const bounds = state.map.getBounds();
     const geom = {
       xmin: bounds.getWest(), ymin: bounds.getSouth(),
@@ -833,7 +849,7 @@
       if (!geojson.features) return;
       state.layers.passengerLines.clearLayers();
       L.geoJSON(geojson, {
-        style: { color: "#00c2ff", weight: 3, opacity: 0.9 },
+        style: { color: "#00c2ff", weight: 4, opacity: 0.95 },
         onEachFeature: (f, layer) => {
           layer.on("click", () => showRailMeta(f.properties));
         },
@@ -846,6 +862,9 @@
 
   async function loadNamedPointLayer(endpoint, layerGroup, cacheKey, titleFn, kind, whereClause) {
     if (!endpoint) return;
+    if (layerGroup && state.map && !state.map.hasLayer(layerGroup)) {
+      layerGroup.addTo(state.map);
+    }
     const bounds = state.map.getBounds();
     const geom = {
       xmin: bounds.getWest(), ymin: bounds.getSouth(),
@@ -1078,28 +1097,64 @@
     if (sel) sel.value = id;
     const sys = document.getElementById("city-systems");
     if (sys) sys.textContent = c.systems || "";
-    // enable transit-related layers
-    ["transitRoutes", "transitStops", "amtrakStations", "passengerLines"].forEach((key) => {
+
+    // Force-enable layers that plot transit + passenger + local freight context
+    const enableKeys = [
+      "transitRoutes",
+      "transitStops",
+      "amtrakStations",
+      "passengerLines",
+      "class1only",
+      "amtrak",
+      "other",
+    ];
+    enableKeys.forEach((key) => {
       const el = document.querySelector(`input[data-layer="${key}"]`);
-      if (el && !el.checked) {
-        el.checked = true;
-        el.dispatchEvent(new Event("change"));
+      if (!el) return;
+      el.checked = true;
+    });
+    // Put layer groups on the map immediately
+    ["transitRoutes", "transitStops", "amtrakStations", "passengerLines"].forEach((key) => {
+      if (state.layers[key] && !state.map.hasLayer(state.layers[key])) {
+        state.layers[key].addTo(state.map);
       }
     });
+    if (state.layers.rails && !state.map.hasLayer(state.layers.rails)) {
+      state.layers.rails.addTo(state.map);
+    }
+
+    let cityLoadDone = false;
+    const onDone = () => {
+      if (cityLoadDone) return;
+      cityLoadDone = true;
+      state.map.off("moveend", onDone);
+      state.useClass1Only = false; // show Class I + local detail
+      // Explicit city bbox query (don't rely only on map bounds mid-animation)
+      const cityBounds = L.latLngBounds([c.south, c.west], [c.north, c.east]);
+      state.map.fitBounds(cityBounds, { padding: [20, 20], maxZoom: 12.5, animate: false });
+      Promise.all([
+        loadTransitRoutes(),
+        loadTransitStops(),
+        loadAmtrakStations(),
+        loadPassengerLines(),
+        loadRailsForView(),
+      ]).then(() => {
+        toast(c.name + " — transit routes + freight/passenger rails plotted", "success");
+      }).catch((err) => {
+        console.error(err);
+        toast("City load partial — check console", "error");
+      });
+    };
+    state.map.once("moveend", onDone);
     state.map.fitBounds(
       [
         [c.south, c.west],
         [c.north, c.east],
       ],
-      { padding: [40, 40], maxZoom: 13, animate: true }
+      { padding: [48, 48], maxZoom: 12.5, animate: true }
     );
-    toast(c.name + " — " + (c.systems || "transit"), "success");
-    setTimeout(() => {
-      if (typeof loadTransitRoutes === "function") loadTransitRoutes();
-      if (typeof loadTransitStops === "function") loadTransitStops();
-      if (typeof loadAmtrakStations === "function") loadAmtrakStations();
-      if (typeof loadPassengerLines === "function") loadPassengerLines();
-    }, 600);
+    toast(c.name + " — " + (c.systems || "loading transit…"), "success");
+    setTimeout(onDone, 900);
   }
 
   function resetAllFilters() {

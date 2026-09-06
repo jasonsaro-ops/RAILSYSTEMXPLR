@@ -1,62 +1,32 @@
 # RailSystemXplr
 
-US Railroad Network Explorer — mission-style ops map for Class I freight, short lines, Amtrak, and city transit (NYC subway, Metra, SEPTA, etc.).
+US railroad + transit explorer for GitHub Pages.
 
-**GitHub user:** `jasonsaro-ops` · **Repo:** `RailSystemXplr`
+**Repo:** `jasonsaro-ops/RailSystemXplr`
 
-## What’s in this repo
+## Deploy (static — no build)
 
-| Path | Description |
-|------|-------------|
-| **Root** (`index.html`, `css/`, `js/`) | **Static Leaflet app** — open or deploy to GitHub Pages with no build step |
-| **`typescript-app/`** | Vite + React + TypeScript + MapLibre redesign (PowerGrid-style caching, NTM city presets) |
+Upload this package **to the repo root** so `index.html` is at `/`.
 
-## Quick start (GitHub Pages — static)
+Settings → Pages → branch `main` → `/ (root)`.
 
-1. Create repo **RailSystemXplr** under `jasonsaro-ops`.
-2. Upload **all files from this package** to the repo root (not inside an extra folder).
-3. **Settings → Pages → Deploy from branch** `main` / `/ (root)`.
-4. Site URL: `https://jasonsaro-ops.github.io/RailSystemXplr/`
+https://jasonsaro-ops.github.io/RailSystemXplr/
 
-Or with git:
+## City transit
 
-```bash
-unzip RailSystemXplr-github.zip
-cd RailSystemXplr-github   # or rename folder to RailSystemXplr
-git init
-git add .
-git commit -m "Initial RailSystemXplr"
-git branch -M main
-git remote add origin https://github.com/jasonsaro-ops/RailSystemXplr.git
-git push -u origin main
-```
+Left panel → **Major city transit** → e.g. New York City.
 
-## TypeScript app (optional)
+That zooms the map and **plots**:
+- Transit routes (subway / light rail / commuter) from BTS National Transit Map
+- Transit stops
+- Passenger rail lines (NARN)
+- Class I + local freight rails in view
+- Amtrak stations
 
-```bash
-cd typescript-app
-npm install
-npm run dev      # local
-npm run build    # output in typescript-app/dist
-```
+## Layers
 
-`vite.config.ts` uses `base: '/RailSystemXplr/'` for Pages if you later publish the built `dist/` instead of the static root.
+Freight Class I (BNSF, UP, CSX, NS, CN, CPKC), short lines, passenger/Amtrak, NTM transit, yards, crossings, bridges, mileposts, live trains, railcams.
 
-## Features
+## Optional TypeScript app
 
-- Class I freight layers (BNSF, UP, CSX, NS, CN, CPKC) + full NARN
-- National Transit Map — subway / light rail / commuter / bus
-- **Major city presets** (NYC, Chicago, Philly, Boston, DC, SF, LA, …)
-- Amtrak stations + live Amtrak-family trains (Amtraker)
-- Yards, grade crossings, nodes, bridges, mileposts
-- Live railcams (YouTube embeds)
-- Search, state focus, **Reset filters**
-- Dark Ops basemap (Esri) — no API key
-
-## Data sources (public)
-
-BTS/FRA NTAD (NARN, yards, crossings, bridges, mileposts, Amtrak stations), BTS National Transit Map (GTFS), Amtraker. Private railroad wayside devices and live freight positions are not published as open GIS.
-
-## License
-
-Public domain government data layers as provided by BTS/FRA. App code provided for use in your GitHub project.
+See `typescript-app/` — `npm install && npm run dev`.
