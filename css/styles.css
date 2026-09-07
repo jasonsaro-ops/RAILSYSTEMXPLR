@@ -909,9 +909,9 @@ html, body {
   z-index: 2000;
 }
 .meta-window.anchored {
-  position: fixed;
-  right: auto;
-  bottom: auto;
+  position: fixed !important;
+  right: auto !important;
+  bottom: auto !important;
   animation: disp-in 0.18s ease-out;
 }
 @keyframes disp-in {
@@ -952,3 +952,76 @@ html, body {
   border-radius: 4px;
   box-shadow: 0 0 0 1px rgba(0,0,0,0.5), 0 2px 8px rgba(0,0,0,0.4);
 }
+
+/* OpenRailwayMap legend panel */
+.orm-legend {
+  position: fixed;
+  left: 16px;
+  bottom: 16px;
+  z-index: 1800;
+  max-width: 420px;
+  max-height: min(70vh, 520px);
+  overflow: auto;
+  background: rgba(12, 16, 22, 0.96);
+  border: 1px solid rgba(0, 212, 170, 0.35);
+  border-radius: 10px;
+  box-shadow: 0 12px 40px rgba(0,0,0,0.5);
+  padding: 0.75rem 1rem 1rem;
+  color: #e8f0f8;
+  font-size: 0.78rem;
+}
+.orm-legend.hidden { display: none; }
+.orm-legend-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+  padding-bottom: 0.4rem;
+}
+.orm-legend-head button {
+  background: none; border: none; color: #8a9bb0; font-size: 1.2rem; cursor: pointer;
+}
+.orm-legend-body { display: flex; gap: 1.2rem; flex-wrap: wrap; }
+.orm-col { flex: 1; min-width: 140px; }
+.orm-col h4 {
+  margin: 0.5rem 0 0.35rem;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #00d4aa;
+}
+.orm-row {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin: 0.2rem 0;
+  color: #c5d0dc;
+}
+.orm-swatch {
+  display: inline-block;
+  width: 28px;
+  height: 4px;
+  border-radius: 1px;
+  background: #888;
+  flex-shrink: 0;
+}
+.orm-swatch.bridge { height: 6px; background: #222; }
+.orm-swatch.tunnel { background: repeating-linear-gradient(90deg,#444 0 4px,transparent 4px 7px); height: 5px; }
+.orm-swatch.lineref { background: #e67e22; height: 3px; }
+.orm-swatch.rail { background: #333; }
+.orm-swatch.narrow { background: repeating-linear-gradient(90deg,#333 0 3px,#fff 3px 5px); }
+.orm-swatch.siding { background: #555; height: 2px; }
+.orm-swatch.yard { background: #666; height: 2px; }
+.orm-swatch.spur { background: #6b4423; height: 3px; }
+.orm-swatch.crossover { background: #777; height: 2px; }
+.orm-swatch.branch { background: #c5e063; }
+.orm-swatch.main { background: #e67e22; height: 5px; }
+.orm-swatch.highspeed { background: #e74c3c; height: 5px; }
+.orm-swatch.industrial { background: #8B4513; height: 3px; }
+.orm-swatch.disused { background: #888; height: 3px; opacity: 0.6; }
+.orm-swatch.tram { background: #e91e8c; }
+.orm-swatch.metro { background: #3b5bdb; }
+.orm-swatch.lightrail { background: #2ecc71; }
+.orm-swatch.owner { width: 14px; height: 14px; border-radius: 50%; border: 2px solid #e74c3c; background: transparent; }
+.hint { font-weight: 400; opacity: 0.6; font-size: 0.7em; }

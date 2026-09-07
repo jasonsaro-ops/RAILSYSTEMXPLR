@@ -78,6 +78,19 @@
           </div>
 
           <div class="layer-group">
+            <h3>OpenRailwayMap <span class="hint">OSM detail</span></h3>
+            <p class="note" style="font-size:0.68rem;margin:0 0 0.4rem">Nationwide OSM railway rendering (bridges, tunnels, main/yard/spur, speeds, signals, electrification, gauge). Toggle one style. Zoom in for full detail.</p>
+            <label class="check-row"><input type="radio" name="orm" value="off" checked /> Off</label>
+            <label class="check-row"><input type="radio" name="orm" value="standard" /> Infrastructure (tracks, stations, switches)</label>
+            <label class="check-row"><input type="radio" name="orm" value="maxspeed" /> Max speeds</label>
+            <label class="check-row"><input type="radio" name="orm" value="signals" /> Signalling &amp; train protection</label>
+            <label class="check-row"><input type="radio" name="orm" value="electrification" /> Electrification / catenary</label>
+            <label class="check-row"><input type="radio" name="orm" value="gauge" /> Track gauge</label>
+            <button type="button" id="btn-orm-legend" class="btn" style="margin-top:0.4rem;width:100%;font-size:0.72rem">Show OpenRailwayMap legend</button>
+            <a class="ext-link" href="https://www.openrailwaymap.org/" target="_blank" rel="noopener">openrailwaymap.org ↗</a>
+          </div>
+
+          <div class="layer-group">
             <h3>Class I Freight</h3>
             <label class="check-row"><input type="checkbox" data-layer="bnsf" checked /> <span class="swatch bnsf"></span> BNSF</label>
             <label class="check-row"><input type="checkbox" data-layer="up" checked /> <span class="swatch up"></span> Union Pacific</label>

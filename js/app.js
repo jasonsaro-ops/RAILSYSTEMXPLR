@@ -170,6 +170,40 @@
     state.basemaps.dark.addTo(state.map);
     state.basemaps.darkLabels.addTo(state.map);
     state._darkLabelsOn = true;
+
+    // OpenRailwayMap overlays (transparent nationwide OSM railway styles)
+    state.ormLayers = {};
+    state.activeOrm = "off";
+    if (CONFIG.OPENRAILWAYMAP) {
+      const ormAttr = CONFIG.OPENRAILWAYMAP.attribution || "";
+      const mz = CONFIG.OPENRAILWAYMAP.maxZoom || 19;
+      ["standard", "maxspeed", "signals", "electrification", "gauge"].forEach((style) => {
+        const url = CONFIG.OPENRAILWAYMAP[style];
+        if (!url) return;
+        state.ormLayers[style] = L.tileLayer(url, {
+          attribution: ormAttr,
+          maxZoom: mz,
+          minZoom: 2,
+          opacity: 0.95,
+          zIndex: 450,
+          className: "orm-tiles",
+        });
+      });
+    }
+  }
+
+  function setOpenRailwayMap(style) {
+    // Remove previous ORM overlay
+    if (state.activeOrm && state.activeOrm !== "off" && state.ormLayers[state.activeOrm]) {
+      state.map.removeLayer(state.ormLayers[state.activeOrm]);
+    }
+    state.activeOrm = style || "off";
+    if (style && style !== "off" && state.ormLayers[style]) {
+      state.ormLayers[style].addTo(state.map);
+      toast("OpenRailwayMap · " + style, "success");
+    } else {
+      toast("OpenRailwayMap off");
+    }
   }
 
   function setBasemap(name) {
@@ -195,6 +229,20 @@
     document.querySelectorAll('input[name="basemap"]').forEach((el) => {
       el.addEventListener("change", () => setBasemap(el.value));
     });
+    document.querySelectorAll('input[name="orm"]').forEach((el) => {
+      el.addEventListener("change", () => {
+        if (el.checked) setOpenRailwayMap(el.value);
+      });
+    });
+    const legBtn = document.getElementById("btn-orm-legend");
+    const leg = document.getElementById("orm-legend");
+    const legClose = document.getElementById("orm-legend-close");
+    if (legBtn && leg) {
+      legBtn.addEventListener("click", () => leg.classList.toggle("hidden"));
+    }
+    if (legClose && leg) {
+      legClose.addEventListener("click", () => leg.classList.add("hidden"));
+    }
 
     document.querySelectorAll("input[data-layer]").forEach((el) => {
       el.addEventListener("change", () => {
@@ -616,7 +664,7 @@
         });
         const marker = L.marker([lat, lon], { icon, zIndexOffset: 1000 });
         marker.trainData = t;
-        marker.on("click", () => showTrainMeta(t));
+        marker.on("click", (ev) => showTrainMeta(t, ev.latlng));
         marker.addTo(state.layers.trains);
         state.trainMarkers.set(t.trainID || t.trainNum + "-" + lat, marker);
       });
@@ -744,7 +792,7 @@
           iconAnchor: [12, 12],
         }),
       });
-      m.on("click", () => showYardMeta(p, title));
+      m.on("click", (ev) => showYardMeta(p, title, ev.latlng));
       return m;
     }
     if (type === "crossings") {
@@ -756,7 +804,7 @@
           iconAnchor: [8, 8],
         }),
       });
-      m.on("click", () => showCrossingMeta(p, title));
+      m.on("click", (ev) => showCrossingMeta(p, title, ev.latlng));
       return m;
     }
     // nodes — style by role
@@ -771,11 +819,11 @@
       weight: 1.5,
     });
     m.bindTooltip(title, { direction: "top", opacity: 0.9, className: "rsx-tip" });
-    m.on("click", () => showNodeMeta(p, title));
+    m.on("click", (ev) => showNodeMeta(p, title, ev.latlng));
     return m;
   }
 
-  function showNodeMeta(p, title) {
+  function showNodeMeta(p, title, latlng) {
     const station = (p.PASSNGRSTN || "").toString().trim() || "—";
     const pass = (p.PASSNGR || "—").toString();
     const role = [];
@@ -796,10 +844,10 @@
         NARN nodes are topology points (junctions, station ends, boundaries). Public national data does <strong>not</strong> include proprietary wayside devices (hot-box detectors, dragging-equipment detectors, switch heaters, AEI readers). Those are railroad-owned and not published as open GIS.
       </p>
     `;
-    openMeta(title || "Network Node", html);
+    openMeta(title || "Network Node", html, latlng);
   }
 
-  function showCrossingMeta(p, title) {
+  function showCrossingMeta(p, title, latlng) {
     const html = `
       <div class="section-title">Highway–Rail Grade Crossing</div>
       <div class="kv"><span class="k">Street / Highway</span><span class="v">${escapeHtml(p.STREET || p.Street || p.HIGHWAY || "—")}</span></div>
@@ -812,10 +860,10 @@
       <div class="kv"><span class="k">Type</span><span class="v">${escapeHtml(String(p.TYPEXING || p.TYPE || "—"))}</span></div>
       <p style="margin-top:0.6rem;font-size:0.72rem;color:var(--text-muted)">Source: FRA National Highway–Rail Crossing Inventory (NTAD).</p>
     `;
-    openMeta(title || "Grade Crossing", html);
+    openMeta(title || "Grade Crossing", html, latlng);
   }
 
-  function showYardMeta(p, title) {
+  function showYardMeta(p, title, latlng) {
     const keys = ["NAME","YARDNAME","RROWNER1","STATE","STATEAB","CITY","STFIPS"];
     const rows = keys
       .filter((k) => p[k] != null && p[k] !== "")
@@ -827,11 +875,13 @@
       .map((k) => `<div class="kv"><span class="k">${escapeHtml(k)}</span><span class="v">${escapeHtml(String(p[k]))}</span></div>`)
       .join("");
     openMeta(title || "Rail Yard", `
+      <div class="disp-badge">YARD</div>
       <div class="section-title">Yard / Facility</div>
       ${rows || "<em>Named facility</em>"}
-      <div class="section-title">Attributes</div>
+      <div class="section-title">All published attributes</div>
       ${extra || ""}
-    `);
+      <p class="disp-note">Source: FRA/BTS NTAD Rail Yards.</p>
+    `, latlng);
   }
 
 
@@ -1003,15 +1053,17 @@
           onEachFeature: (feat, layer) => {
             const p = feat.properties;
             const name = p.route_long_name || p.route_short_name || p.route_id || "Transit route";
-            layer.on("click", () => {
+            layer.on("click", (ev) => {
               openMeta(name, `
+                <div class="disp-badge">TRANSIT ROUTE</div>
                 <div class="section-title">${labels[t] || "Transit Route"}</div>
                 <div class="kv"><span class="k">Name</span><span class="v">${escapeHtml(name)}</span></div>
                 <div class="kv"><span class="k">Short name</span><span class="v">${escapeHtml(p.route_short_name || "—")}</span></div>
                 <div class="kv"><span class="k">Type</span><span class="v">${escapeHtml(p.route_type_text || labels[t] || String(t))}</span></div>
                 <div class="kv"><span class="k">Agency / NTD</span><span class="v">${escapeHtml(String(p.agency_id || ""))} · ${escapeHtml(String(p.ntd_id || ""))}</span></div>
-                <p style="margin-top:0.5rem;font-size:0.72rem;color:var(--text-muted)">National Transit Map (BTS) — all agencies nationwide via GTFS.</p>
-              `);
+                <div class="kv"><span class="k">Route ID</span><span class="v">${escapeHtml(String(p.route_id || "—"))}</span></div>
+                <p class="disp-note">National Transit Map (BTS) — GTFS routes nationwide.</p>
+              `, ev.latlng);
             });
           },
         }).addTo(target);
@@ -1056,7 +1108,7 @@
       L.geoJSON(geojson, {
         style: { color: "#00c2ff", weight: 4, opacity: 0.95 },
         onEachFeature: (f, layer) => {
-          layer.on("click", () => showRailMeta(f.properties));
+          layer.on("click", (ev) => showRailMeta(f.properties, layer.getBounds?.(), ev.latlng));
         },
       }).addTo(state.layers.passengerLines);
       toast(`Passenger rail lines: ${geojson.features.length}`, "success");
@@ -1113,7 +1165,7 @@
         if (cache.has(key)) return;
         const title = titleFn(p);
         const marker = infraMarker([lat, lon], kind, title);
-        marker.on("click", () => showInfraMeta(kind, title, p));
+        marker.on("click", (ev) => showInfraMeta(kind, title, p, ev.latlng || L.latLng(lat, lon)));
         marker.addTo(layerGroup);
         cache.set(key, marker);
         added++;
@@ -1163,54 +1215,76 @@
     }).bindTooltip(title, { className: "rsx-tip", direction: "top" });
   }
 
-  function showInfraMeta(kind, title, p) {
+  function showInfraMeta(kind, title, p, latlng) {
+    const extraRows = (props, skip = []) =>
+      Object.keys(props || {})
+        .filter((k) => !skip.includes(k) && !/^SHAPE/i.test(k) && props[k] != null && props[k] !== "")
+        .slice(0, 40)
+        .map((k) => `<div class="kv"><span class="k">${escapeHtml(k)}</span><span class="v">${escapeHtml(String(props[k]))}</span></div>`)
+        .join("");
+
     if (kind === "amtrak") {
-      openMeta(title, `
-        <div class="section-title">Amtrak Station</div>
-        <div class="kv"><span class="k">Name</span><span class="v">${escapeHtml(p.Name || p.StationName || "—")}</span></div>
-        <div class="kv"><span class="k">Code</span><span class="v">${escapeHtml(p.Code || p.STNCODE || "—")}</span></div>
-        <div class="kv"><span class="k">Address</span><span class="v">${escapeHtml([p.Address1, p.City, p.State, p.ZipCode].filter(Boolean).join(", ") || "—")}</span></div>
-        <div class="kv"><span class="k">Type</span><span class="v">${escapeHtml(p.StnType || p.StaType || "—")}</span></div>
-        <p style="margin-top:0.5rem;font-size:0.72rem;color:var(--text-muted)">Source: BTS NTAD Amtrak Stations (from Amtrak).</p>
-      `);
+      const name = p.Name || p.StationName || p.STNNAME || p.name || title || "Amtrak Station";
+      const code = p.Code || p.code || p.STNCODE || p.stationCode || "—";
+      const html = `
+        <div class="disp-badge">AMTRAK STATION</div>
+        <div class="kv"><span class="k">Station</span><span class="v">${escapeHtml(name)}</span></div>
+        <div class="kv"><span class="k">Code</span><span class="v">${escapeHtml(String(code))}</span></div>
+        <div class="kv"><span class="k">City / State</span><span class="v">${escapeHtml([p.City || p.city, p.State || p.state || p.STATE].filter(Boolean).join(", ") || "—")}</span></div>
+        <div class="kv"><span class="k">Address</span><span class="v">${escapeHtml(p.Address || p.address1 || p.ADDRESS || "—")}</span></div>
+        <div class="kv"><span class="k">ZIP</span><span class="v">${escapeHtml(String(p.Zip || p.zip || p.ZIP || "—"))}</span></div>
+        <div class="kv"><span class="k">Lat / Lon</span><span class="v">${escapeHtml(String(p.lat ?? p.Lat ?? "—"))}, ${escapeHtml(String(p.lon ?? p.Lon ?? p.lng ?? "—"))}</span></div>
+        <div class="section-title">Inventory attributes</div>
+        ${extraRows(p, ["Name","StationName","STNNAME","name","Code","code","SHAPE","Shape"])}
+        <p class="disp-note">Sources: BTS NTAD Amtrak Stations · Amtraker station index. Live arrivals on train markers.</p>
+      `;
+      const ll = latlng || (p.lat != null ? L.latLng(Number(p.lat), Number(p.lon ?? p.lng ?? p.Lon)) : null);
+      openMeta("Station · " + name, html, ll);
       return;
     }
     if (kind === "bridge") {
-      const keys = ["Name","RROwner","RROWNER","Subdivision","Rail_MilePost","Bridge_Type","City","State","County"];
-      const rows = keys.filter((k) => p[k] != null && p[k] !== "").map((k) =>
-        `<div class="kv"><span class="k">${escapeHtml(k)}</span><span class="v">${escapeHtml(String(p[k]))}</span></div>`
-      ).join("");
-      openMeta(title, `<div class="section-title">Railroad Bridge</div>${rows || "<em>Bridge structure</em>"}
-        <p style="margin-top:0.5rem;font-size:0.72rem;color:var(--text-muted)">Source: FRA / BTS NTAD Railroad Bridges (approximate inventory).</p>`);
+      openMeta(title, `
+        <div class="disp-badge">BRIDGE</div>
+        <div class="section-title">Railroad Bridge</div>
+        ${extraRows(p)}
+        <p class="disp-note">Source: FRA/BTS NTAD Railroad Bridges (approximate inventory).</p>
+      `, latlng);
       return;
     }
     if (kind === "milepost") {
       openMeta(title, `
-        <div class="section-title">Rail Milepost</div>
-        <div class="kv"><span class="k">Milepost</span><span class="v">${escapeHtml(String(p.MILEPOST ?? "—"))}</span></div>
-        <div class="kv"><span class="k">Subdivision</span><span class="v">${escapeHtml(p.SUBDIV || "—")}</span></div>
-        <div class="kv"><span class="k">State</span><span class="v">${escapeHtml(p.STATEAB || "—")}</span></div>
-      `);
+        <div class="disp-badge">MILEPOST</div>
+        <div class="kv"><span class="k">Milepost</span><span class="v">${escapeHtml(String(p.MILEPOST ?? p.Milepost ?? "—"))}</span></div>
+        <div class="kv"><span class="k">Subdivision</span><span class="v">${escapeHtml(p.SUBDIV || p.Subdivision || "—")}</span></div>
+        <div class="kv"><span class="k">Railroad</span><span class="v">${escapeHtml(p.RROWNER1 || p.RR || "—")}</span></div>
+        <div class="kv"><span class="k">State</span><span class="v">${escapeHtml(p.STATEAB || p.State || "—")}</span></div>
+        <div class="section-title">Attributes</div>
+        ${extraRows(p)}
+        <p class="disp-note">Source: FRA/BTS NTAD Rail Mileposts.</p>
+      `, latlng);
       return;
     }
     // transit stop
     openMeta(title, `
-      <div class="section-title">Transit / Commuter Stop</div>
-      <div class="kv"><span class="k">Name</span><span class="v">${escapeHtml(p.stop_name || "—")}</span></div>
+      <div class="disp-badge">TRANSIT STOP</div>
+      <div class="kv"><span class="k">Name</span><span class="v">${escapeHtml(p.stop_name || p.Name || "—")}</span></div>
       <div class="kv"><span class="k">Stop ID</span><span class="v">${escapeHtml(String(p.stop_id || "—"))}</span></div>
       <div class="kv"><span class="k">Code</span><span class="v">${escapeHtml(p.stop_code || "—")}</span></div>
+      <div class="kv"><span class="k">Location type</span><span class="v">${escapeHtml(String(p.location_type ?? "—"))}</span></div>
       <div class="kv"><span class="k">NTD / Feed</span><span class="v">${escapeHtml(String(p.ntd_id || ""))} · ${escapeHtml(String(p.feed_id || ""))}</span></div>
       <div class="kv"><span class="k">Description</span><span class="v">${escapeHtml(p.stop_desc || "—")}</span></div>
-      <p style="margin-top:0.5rem;font-size:0.72rem;color:var(--text-muted)">National Transit Map (BTS) — GTFS stops (includes rail, subway, bus, etc.).</p>
-    `);
+      <div class="section-title">GTFS attributes</div>
+      ${extraRows(p)}
+      <p class="disp-note">National Transit Map (BTS) — GTFS stops nationwide.</p>
+    `, latlng);
   }
 
-  function showGenericMeta(title, props) {
-    const keys = Object.keys(props).filter((k) => !k.startsWith("SHAPE") && props[k] != null).slice(0, 30);
+  function showGenericMeta(title, props, latlng) {
+    const keys = Object.keys(props).filter((k) => !k.startsWith("SHAPE") && props[k] != null).slice(0, 40);
     const rows = keys.map((k) =>
       `<div class="kv"><span class="k">${escapeHtml(k)}</span><span class="v">${escapeHtml(String(props[k]))}</span></div>`
     ).join("");
-    openMeta(title, rows || "<em>No attributes</em>");
+    openMeta(title, `<div class="disp-badge">ASSET</div>${rows || "<em>No attributes</em>"}`, latlng);
   }
 
   // ---------- Metadata floating window ----------
@@ -1256,7 +1330,7 @@
     openMeta("TRACK · " + (props.RROWNER1 || "Unknown") + (subdiv && subdiv !== "—" ? " · " + subdiv : ""), html, ll);
   }
 
-  function showTrainMeta(t) {
+  function showTrainMeta(t, latlng) {
     const stations = (t.stations || []).slice(0, 12).map((s) =>
       `<div class="kv"><span class="k">${escapeHtml(s.code)}</span><span class="v">${escapeHtml(s.name || "")} · ${escapeHtml(s.status || "")}</span></div>`
     ).join("");
@@ -1276,7 +1350,7 @@
       ${stations || "<em>No station list</em>"}
       <p style="margin-top:0.8rem;font-size:0.72rem;color:var(--text-muted)">Passenger data via Amtraker (community). Freight live positions are not public.</p>
     `;
-    openMeta(`Train ${t.trainNum} — ${t.routeName || ""}`, html, t.lat != null ? L.latLng(t.lat, t.lon) : null);
+    openMeta(`Train ${t.trainNum} — ${t.routeName || ""}`, html, latlng || (t.lat != null ? L.latLng(Number(t.lat), Number(t.lon)) : null));
   }
 
   function openMeta(title, bodyHtml, latlng) {
@@ -1286,36 +1360,50 @@
     win.classList.remove("hidden");
     win.classList.add("dispatcher-panel");
 
-    // Position near clicked map point (dispatcher style); fall back to right dock
-    if (latlng && state.map) {
-      try {
-        const pt = state.map.latLngToContainerPoint(latlng);
-        const mapEl = document.getElementById("map");
-        const mapRect = mapEl.getBoundingClientRect();
-        const w = win.offsetWidth || 340;
-        const h = win.offsetHeight || 280;
-        let left = mapRect.left + pt.x + 16;
-        let top = mapRect.top + pt.y - 20;
-        // Keep on screen
-        if (left + w > window.innerWidth - 12) left = mapRect.left + pt.x - w - 16;
-        if (top + h > window.innerHeight - 12) top = window.innerHeight - h - 12;
-        if (left < 8) left = 8;
-        if (top < 60) top = 60;
-        win.style.left = left + "px";
-        win.style.top = top + "px";
-        win.style.right = "auto";
-        win.style.bottom = "auto";
-        win.classList.add("anchored");
-      } catch (e) {
-        win.classList.remove("anchored");
-        win.style.left = "";
-        win.style.top = "";
+    const place = () => {
+      // Normalize latlng from Leaflet LatLng, array, or {lat,lng}
+      let ll = latlng;
+      if (ll && typeof ll.lat === "function") ll = L.latLng(ll.lat(), ll.lng());
+      else if (Array.isArray(ll) && ll.length >= 2) ll = L.latLng(ll[0], ll[1]);
+      else if (ll && ll.lat != null && (ll.lng != null || ll.lon != null)) {
+        ll = L.latLng(Number(ll.lat), Number(ll.lng != null ? ll.lng : ll.lon));
+      } else if (!(ll && typeof ll.lat === "number")) {
+        ll = null;
       }
-    } else {
+
+      if (ll && state.map) {
+        try {
+          const pt = state.map.latLngToContainerPoint(ll);
+          const mapEl = document.getElementById("map") || state.map.getContainer();
+          const mapRect = mapEl.getBoundingClientRect();
+          const w = Math.max(win.offsetWidth || 0, 320);
+          const h = Math.max(win.offsetHeight || 0, 200);
+          let left = mapRect.left + pt.x + 18;
+          let top = mapRect.top + pt.y - 24;
+          if (left + w > window.innerWidth - 10) left = mapRect.left + pt.x - w - 18;
+          if (top + h > window.innerHeight - 10) top = window.innerHeight - h - 10;
+          if (left < 10) left = 10;
+          if (top < 56) top = 56;
+          win.style.position = "fixed";
+          win.style.left = Math.round(left) + "px";
+          win.style.top = Math.round(top) + "px";
+          win.style.right = "auto";
+          win.style.bottom = "auto";
+          win.classList.add("anchored");
+          return;
+        } catch (e) {
+          console.warn("meta position", e);
+        }
+      }
+      // Dock right if no coordinates
       win.classList.remove("anchored");
       win.style.left = "";
-      win.style.top = "";
-    }
+      win.style.top = "80px";
+      win.style.right = "24px";
+      win.style.bottom = "auto";
+    };
+    // Layout after paint so width/height are correct
+    requestAnimationFrame(() => requestAnimationFrame(place));
   }
 
   // ---------- Search ----------
@@ -1598,10 +1686,11 @@ function initSearch() {
         } else if ((h.type === "train" || h.type === "station" || h.type === "camera") && h.lat != null) {
           state.map.setView([h.lat, h.lon], h.type === "station" ? 13 : 12);
           if (h.type === "train") showTrainMeta(h.data);
-          else if (h.type === "station") showInfraMeta("amtrak", h.name || h.label, h.data || {});
+          else if (h.type === "station") showInfraMeta("amtrak", h.name || h.label, h.data || {}, (h.lat != null ? L.latLng(h.lat, h.lon) : null));
           else if (h.type === "camera" && h.data) {
             openMeta(h.label, `<p>Railcam · ${escapeHtml(h.data.channel || "")}</p>
-              <iframe width="100%" height="220" src="https://www.youtube.com/embed/${escapeHtml(h.data.youtubeId || h.data.vid || h.data.yt || "")}?autoplay=1" allowfullscreen></iframe>`);
+              <iframe width="100%" height="220" src="https://www.youtube.com/embed/${escapeHtml(h.data.youtubeId || h.data.vid || h.data.yt || "")}?autoplay=1" allowfullscreen></iframe>`,
+              h.lat != null ? L.latLng(h.lat, h.lon) : null);
           }
         } else if (h.type === "city" && h.data) {
           flyToCity(h.data.id);
@@ -1734,12 +1823,12 @@ function initSearch() {
         iconAnchor: [14, 14],
       });
       const m = L.marker([cam.lat, cam.lon], { icon, zIndexOffset: 900 });
-      m.on("click", () => showCameraMeta(cam));
+      m.on("click", (ev) => showCameraMeta(cam, ev.latlng));
       m.addTo(state.layers.cameras);
     });
   }
 
-  function showCameraMeta(cam) {
+  function showCameraMeta(cam, latlng) {
     let embed = "";
     if (cam.yt) {
       embed = `<iframe src="https://www.youtube.com/embed/${escapeHtml(cam.yt)}?autoplay=1" allowfullscreen allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin"></iframe>
@@ -1759,7 +1848,7 @@ function initSearch() {
       ${embed}
       <p style="margin-top:0.6rem;font-size:0.7rem;color:var(--text-muted)">Third-party streams (VRF, Railside Live, Iron Rail Cams, SouthWest RailCams, RailStream, etc.). IDs rotate; if offline, use the channel /streams page. Some cams require membership on the operator site.</p>
     `;
-    openMeta("Railcam — " + cam.name, html);
+    openMeta("Railcam — " + cam.name, html, latlng || (cam.lat != null ? L.latLng(cam.lat, cam.lon || cam.lng) : null));
   }
 
   function showEmergencyContacts() {

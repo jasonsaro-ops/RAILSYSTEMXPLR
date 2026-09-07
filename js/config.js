@@ -33,6 +33,17 @@ const CONFIG = {
   // Named trains that must always be polled (Auto Train often under-reported in bulk)
   PRIORITY_TRAIN_NUMS: ["52", "53"], // Auto Train Lorton↔Sanford
 
+  // OpenRailwayMap tiles (OSM-derived, nationwide) — https://www.openrailwaymap.org/
+  OPENRAILWAYMAP: {
+    standard: "https://tiles.openrailwaymap.org/standard/{z}/{x}/{y}.png",
+    maxspeed: "https://tiles.openrailwaymap.org/maxspeed/{z}/{x}/{y}.png",
+    signals: "https://tiles.openrailwaymap.org/signals/{z}/{x}/{y}.png",
+    electrification: "https://tiles.openrailwaymap.org/electrification/{z}/{x}/{y}.png",
+    gauge: "https://tiles.openrailwaymap.org/gauge/{z}/{x}/{y}.png",
+    attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> · Style <a href="https://www.openrailwaymap.org/">OpenRailwayMap</a> (CC-BY-SA)',
+    maxZoom: 19,
+  },
+
   // Refresh interval (ms)
   REFRESH_MS: 120000, // 2 minutes
 
