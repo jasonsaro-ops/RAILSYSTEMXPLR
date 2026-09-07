@@ -234,15 +234,43 @@
         if (el.checked) setOpenRailwayMap(el.value);
       });
     });
+    function toggleOrmLegend(show) {
+      const leg = document.getElementById("orm-legend");
+      if (!leg) {
+        console.warn("orm-legend element missing");
+        toast("Legend panel missing — redeploy latest build", "error");
+        return;
+      }
+      if (typeof show === "boolean") {
+        leg.classList.toggle("hidden", !show);
+      } else {
+        leg.classList.toggle("hidden");
+      }
+    }
     const legBtn = document.getElementById("btn-orm-legend");
-    const leg = document.getElementById("orm-legend");
+    if (legBtn) {
+      legBtn.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        toggleOrmLegend();
+      });
+    }
     const legClose = document.getElementById("orm-legend-close");
-    if (legBtn && leg) {
-      legBtn.addEventListener("click", () => leg.classList.toggle("hidden"));
+    if (legClose) {
+      legClose.addEventListener("click", (e) => {
+        e.preventDefault();
+        toggleOrmLegend(false);
+      });
     }
-    if (legClose && leg) {
-      legClose.addEventListener("click", () => leg.classList.add("hidden"));
-    }
+    // Event delegation backup (in case button is re-rendered)
+    document.body.addEventListener("click", (e) => {
+      const tbtn = e.target.closest("#btn-orm-legend");
+      if (tbtn) {
+        e.preventDefault();
+        toggleOrmLegend();
+      }
+      if (e.target.closest("#orm-legend-close")) toggleOrmLegend(false);
+    });
 
     document.querySelectorAll("input[data-layer]").forEach((el) => {
       el.addEventListener("change", () => {
@@ -495,7 +523,7 @@
         const params = new URLSearchParams({
           f: "geojson",
           where: where,
-          outFields: "OBJECTID,RROWNER1,RROWNER2,RROWNER3,TRKRGHTS1,TRKRGHTS2,TRKRGHTS3,PASSNGR,STRACNET,TRACKS,YARDNAME,SUBDIV,MILES,STATEAB,FRAARCID",
+          outFields: "*",
           geometry: JSON.stringify(geom),
           geometryType: "esriGeometryEnvelope",
           inSR: "4326",
@@ -1296,38 +1324,61 @@
 
   function showRailMeta(props, bounds, latlng) {
     const owner = classifyOwner(props);
-    const ownerName = (CONFIG.OWNERS[owner.toUpperCase()] || CONFIG.OWNERS[owner] || {}).name
+    const profile = (CONFIG.CLASS1_PROFILES && CONFIG.CLASS1_PROFILES[owner]) || null;
+    const ownerName = (profile && profile.name)
+      || (CONFIG.OWNERS[owner.toUpperCase()] || CONFIG.OWNERS[owner] || {}).name
       || props.RROWNER1 || owner;
     const tracks = props.TRACKS != null ? String(props.TRACKS) : "—";
-    const pass = (props.PASSNGR || "").toString().toUpperCase();
+    const pass = (props.PASSNGR || props.passngr || "").toString().toUpperCase();
     const passLabel = {
       A: "Amtrak", B: "Amtrak + other", P: "Passenger", C: "Commuter",
       N: "Freight only", F: "Freight", Y: "Yes",
     }[pass] || (pass || "—");
-    const strac = (props.STRACNET || "").toString().toUpperCase();
+    const strac = (props.STRACNET || props.stracnet || "").toString().toUpperCase();
     const stracLabel = strac === "S" ? "STRACNET primary" : strac === "C" ? "STRACNET connector" : (strac || "—");
-    // Directional / subdivision presentation (dispatcher style)
-    const subdiv = props.SUBDIV || props.SUBDIVISION || "—";
-    const miles = props.MILES != null ? Number(props.MILES).toFixed(2) + " mi" : "—";
+    const subdiv = props.SUBDIV || props.SUBDIVISION || props.Subdivision || "—";
+    const miles = props.MILES != null ? Number(props.MILES).toFixed(3) + " mi" : "—";
+    const trackDir = tracks === "1" ? "Single track" : tracks === "2" ? "Double track (bi-directional capacity)" : (tracks !== "—" ? tracks + " tracks" : "—");
+
+    const skip = new Set(["SHAPE", "Shape", "shape", "geometry"]);
+    const allRows = Object.keys(props || {})
+      .filter((k) => !skip.has(k) && !/^SHAPE/i.test(k) && props[k] != null && props[k] !== "")
+      .sort()
+      .map((k) => `<div class="kv"><span class="k">${escapeHtml(k)}</span><span class="v">${escapeHtml(String(props[k]))}</span></div>`)
+      .join("");
+
+    const profileHtml = profile ? `
+      <div class="section-title">Class I carrier profile</div>
+      <div class="kv"><span class="k">Railroad</span><span class="v">${escapeHtml(profile.name)}</span></div>
+      <div class="kv"><span class="k">Parent</span><span class="v">${escapeHtml(profile.parent || "—")}</span></div>
+      <div class="kv"><span class="k">Region</span><span class="v">${escapeHtml(profile.region || "—")}</span></div>
+      <div class="kv"><span class="k">HQ</span><span class="v">${escapeHtml(profile.hq || "—")}</span></div>
+      <div class="kv"><span class="k">Reporting marks</span><span class="v">${escapeHtml((profile.marks || []).join(", "))}</span></div>
+      <div class="kv"><span class="k">Notes</span><span class="v">${escapeHtml(profile.notes || "")}</span></div>
+      ${profile.systemMap ? `<p style="margin:0.4rem 0"><a class="ext-link" href="${escapeHtml(profile.systemMap)}" target="_blank" rel="noopener">Official system map / network ↗</a></p>` : ""}
+    ` : (owner === "other" ? `<p class="disp-note">Class II/III, terminal, or shortline — see RROWNER fields below.</p>` : "");
 
     const html = `
       <div class="disp-badge">${escapeHtml(String(owner).toUpperCase())}</div>
+      <div class="kv"><span class="k">Display name</span><span class="v">${escapeHtml(ownerName)}</span></div>
       <div class="kv"><span class="k">Primary Owner</span><span class="v">${escapeHtml(props.RROWNER1 || "—")}</span></div>
       <div class="kv"><span class="k">Owner 2 / 3</span><span class="v">${escapeHtml([props.RROWNER2, props.RROWNER3].filter(Boolean).join(" · ") || "—")}</span></div>
-      <div class="kv"><span class="k">Trackage Rights</span><span class="v">${escapeHtml([props.TRKRGHTS1, props.TRKRGHTS2, props.TRKRGHTS3].filter(Boolean).join(" · ") || "—")}</span></div>
+      <div class="kv"><span class="k">Trackage Rights</span><span class="v">${escapeHtml([props.TRKRGHTS1, props.TRKRGHTS2, props.TRKRGHTS3, props.TRKRGHTS4].filter(Boolean).join(" · ") || "—")}</span></div>
       <div class="kv"><span class="k">Subdivision</span><span class="v">${escapeHtml(subdiv)}</span></div>
-      <div class="kv"><span class="k">Tracks</span><span class="v">${escapeHtml(tracks)}</span></div>
-      <div class="kv"><span class="k">Direction / Net</span><span class="v">Main · ${escapeHtml(tracks === "1" ? "single-track" : tracks === "2" ? "double-track bi-dir" : "multi-track")}</span></div>
+      <div class="kv"><span class="k">Tracks / direction</span><span class="v">${escapeHtml(trackDir)}</span></div>
       <div class="kv"><span class="k">Passenger</span><span class="v">${escapeHtml(passLabel)}</span></div>
       <div class="kv"><span class="k">STRACNET</span><span class="v">${escapeHtml(stracLabel)}</span></div>
-      <div class="kv"><span class="k">State</span><span class="v">${escapeHtml(props.STATEAB || "—")}</span></div>
+      <div class="kv"><span class="k">State</span><span class="v">${escapeHtml(props.STATEAB || props.STATE || "—")}</span></div>
       <div class="kv"><span class="k">Segment length</span><span class="v">${escapeHtml(miles)}</span></div>
-      <div class="kv"><span class="k">FRA ARC ID</span><span class="v">${escapeHtml(String(props.FRAARCID || props.OBJECTID || "—"))}</span></div>
+      <div class="kv"><span class="k">FRA ARC / OBJECTID</span><span class="v">${escapeHtml(String(props.FRAARCID || props.OBJECTID || "—"))}</span></div>
       <div class="kv"><span class="k">Yard</span><span class="v">${escapeHtml(props.YARDNAME || "—")}</span></div>
-      <p class="disp-note">Dispatcher-style segment data from FRA/BTS NARN. Live CTC occupancy (TrainMon5/ATCS) is not publicly API-accessible.</p>
+      ${profileHtml}
+      <div class="section-title">All NARN attributes (this segment)</div>
+      ${allRows || "<em>No attributes returned</em>"}
+      <p class="disp-note">Source: FRA/BTS North American Rail Network. Proprietary CTC/AEI/hot-box data is not public. Carrier ops systems (UP/BNSF/CSX/NS/CN/CPKC) do not publish live freight GPS APIs.</p>
     `;
     const ll = latlng || (bounds && bounds.getCenter ? bounds.getCenter() : null);
-    openMeta("TRACK · " + (props.RROWNER1 || "Unknown") + (subdiv && subdiv !== "—" ? " · " + subdiv : ""), html, ll);
+    openMeta("TRACK · " + (props.RROWNER1 || ownerName) + (subdiv && subdiv !== "—" ? " · " + subdiv : ""), html, ll);
   }
 
   function showTrainMeta(t, latlng) {

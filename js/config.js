@@ -44,6 +44,74 @@ const CONFIG = {
     maxZoom: 19,
   },
 
+
+  // Public Class I profiles (for metadata panels — not proprietary ops data)
+  CLASS1_PROFILES: {
+    bnsf: {
+      name: "BNSF Railway",
+      parent: "Berkshire Hathaway",
+      region: "Western & Midwestern U.S.",
+      hq: "Fort Worth, TX",
+      marks: ["BNSF", "BN"],
+      systemMap: "https://www.bnsf.com/ship-with-bnsf/maps-and-shipping-locations/rail-network-map.html",
+      notes: "Largest freight network by track miles in the U.S. Open GIS ownership via FRA/BTS NARN.",
+    },
+    up: {
+      name: "Union Pacific Railroad",
+      parent: "Union Pacific Corporation",
+      region: "Western U.S.",
+      hq: "Omaha, NE",
+      marks: ["UP", "UPRR", "SP", "DRGW"],
+      systemMap: "https://www.up.com/aboutup/reference/maps/",
+      notes: "Western Class I. Public reference maps on up.com; segment ownership in NARN.",
+    },
+    csx: {
+      name: "CSX Transportation",
+      parent: "CSX Corporation",
+      region: "Eastern U.S.",
+      hq: "Jacksonville, FL",
+      marks: ["CSXT", "CSX"],
+      systemMap: "https://www.csx.com/index.cfm/customers/maps/",
+      notes: "Eastern Class I. NARN encodes CSXT ownership and trackage rights.",
+    },
+    ns: {
+      name: "Norfolk Southern Railway",
+      parent: "Norfolk Southern Corporation",
+      region: "Eastern U.S.",
+      hq: "Atlanta, GA",
+      marks: ["NS", "NW"],
+      systemMap: "https://www.norfolksouthern.com/en/ship-with-ns/shipping-tools/system-map",
+      notes: "Eastern Class I. System map via NS customer tools; geometry in NARN.",
+    },
+    cn: {
+      name: "Canadian National Railway",
+      parent: "Canadian National Railway Company",
+      region: "Canada & mid-America (U.S. Midwest/South)",
+      hq: "Montreal, QC",
+      marks: ["CN", "GTW", "IC", "WC"],
+      systemMap: "https://www.cn.ca/en/our-business/our-network/",
+      notes: "Transcontinental CN including U.S. subsidiaries (GTW, IC, etc.) in NARN.",
+    },
+    cpkc: {
+      name: "Canadian Pacific Kansas City",
+      parent: "Canadian Pacific Kansas City Limited",
+      region: "Canada, U.S. Midwest, Mexico",
+      hq: "Calgary, AB",
+      marks: ["CPKC", "CP", "CPRS", "KCS", "KCSM"],
+      systemMap: "https://www.cpkcr.com/en/our-network",
+      notes: "CP+KCS merger network. NARN uses CPKC/CP/KCS ownership codes.",
+    },
+    amtrak: {
+      name: "Amtrak (NRPC)",
+      parent: "National Railroad Passenger Corporation",
+      region: "Nationwide passenger",
+      hq: "Washington, DC",
+      marks: ["ATK", "AMTK", "NRC"],
+      systemMap: "https://www.amtrak.com/train-routes",
+      notes: "Passenger service; many routes on host Class I tracks (PASSNGR flags in NARN).",
+    },
+  },
+
   // Refresh interval (ms)
   REFRESH_MS: 120000, // 2 minutes
 
