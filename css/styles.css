@@ -898,3 +898,57 @@ html, body {
   border-color: #00d4aa;
   color: #00d4aa;
 }
+
+/* Dispatcher-style floating meta next to click */
+.meta-window.dispatcher-panel {
+  max-width: 360px;
+  border: 1px solid rgba(0, 212, 170, 0.35);
+  box-shadow: 0 12px 40px rgba(0,0,0,0.55), 0 0 0 1px rgba(0,212,170,0.08);
+  background: linear-gradient(165deg, #0c1219 0%, #0a0e14 100%);
+  backdrop-filter: blur(12px);
+  z-index: 2000;
+}
+.meta-window.anchored {
+  position: fixed;
+  right: auto;
+  bottom: auto;
+  animation: disp-in 0.18s ease-out;
+}
+@keyframes disp-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.disp-badge {
+  display: inline-block;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  padding: 3px 8px;
+  border-radius: 4px;
+  background: rgba(0, 212, 170, 0.15);
+  color: #00d4aa;
+  margin-bottom: 0.6rem;
+  border: 1px solid rgba(0, 212, 170, 0.3);
+}
+.disp-note {
+  margin-top: 0.75rem;
+  font-size: 0.68rem;
+  color: var(--text-muted, #7a8a9a);
+  line-height: 1.4;
+}
+.kv {
+  display: grid;
+  grid-template-columns: 42% 1fr;
+  gap: 0.25rem 0.5rem;
+  font-size: 0.78rem;
+  padding: 0.22rem 0;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+}
+.kv .k { color: var(--text-muted, #7a8a9a); }
+.kv .v { color: #e8f0f8; font-weight: 500; text-align: right; }
+
+/* Sleeker track weight on hover already; premium train/camera markers */
+.train-marker {
+  border-radius: 4px;
+  box-shadow: 0 0 0 1px rgba(0,0,0,0.5), 0 2px 8px rgba(0,0,0,0.4);
+}

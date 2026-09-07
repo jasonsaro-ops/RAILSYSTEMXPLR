@@ -108,8 +108,16 @@
       preferCanvas: true, // better performance for many lines
     });
 
-    // Add empty layer groups
-    Object.values(state.layers).forEach((lg) => lg.addTo(state.map));
+    // Mount only checked / core layers (fixes transit stops always-on)
+    const layerChecked = (key) => {
+      if (key === "rails") return true;
+      const el = document.querySelector(`input[data-layer="${key}"]`);
+      if (!el) return key === "trains" || key === "cameras";
+      return el.checked;
+    };
+    Object.entries(state.layers).forEach(([key, lg]) => {
+      if (lg && layerChecked(key)) lg.addTo(state.map);
+    });
   }
 
   function initBasemaps() {
@@ -477,7 +485,7 @@
           onEachFeature: (f, lyr) => {
             lyr._railProps = f.properties;
             lyr.feature = f;
-            lyr.on("click", () => showRailMeta(f.properties, lyr.getBounds?.()));
+            lyr.on("click", (ev) => showRailMeta(f.properties, lyr.getBounds?.(), ev.latlng));
             lyr.on("mouseover", () => lyr.setStyle({ weight: Math.min(6, (lyr.options.weight || 2) + 2), opacity: 1 }));
             lyr.on("mouseout", () => {
               const c = classifyOwner(f.properties);
@@ -920,6 +928,12 @@
   }
 
   async function loadTransitStops() {
+    if (!isLayerChecked("transitStops")) {
+      if (state.layers.transitStops && state.map.hasLayer(state.layers.transitStops)) {
+        state.map.removeLayer(state.layers.transitStops);
+      }
+      return;
+    }
     if (state.map.getZoom() < 10) return;
     // Prefer rail / subway / tram stops when location_type or route info available
     await loadNamedPointLayer(CONFIG.NTM_STOPS, state.layers.transitStops, "transitStops", (p) => {
@@ -941,7 +955,10 @@
     });
     // also keep combined group for backward compat
     if (!state.layers.transitRoutes) state.layers.transitRoutes = L.layerGroup();
-    if (!state.map.hasLayer(state.layers.transitRoutes)) state.layers.transitRoutes.addTo(state.map);
+    // Only show combined routes layer when its checkbox is on; typed layers controlled separately
+    if (isLayerChecked("transitRoutes") && !state.map.hasLayer(state.layers.transitRoutes)) {
+      state.layers.transitRoutes.addTo(state.map);
+    }
 
     const bounds = state.map.getBounds();
     const geom = {
@@ -1048,9 +1065,16 @@
     }
   }
 
+  function isLayerChecked(key) {
+    const el = document.querySelector(`input[data-layer="${key}"]`);
+    return el ? el.checked : true;
+  }
+
   async function loadNamedPointLayer(endpoint, layerGroup, cacheKey, titleFn, kind, whereClause) {
     if (!endpoint) return;
-    if (layerGroup && state.map && !state.map.hasLayer(layerGroup)) {
+    // Do not force-add layer if user turned it off
+    if (cacheKey && !isLayerChecked(cacheKey)) return;
+    if (layerGroup && state.map && isLayerChecked(cacheKey) && !state.map.hasLayer(layerGroup)) {
       layerGroup.addTo(state.map);
     }
     const bounds = state.map.getBounds();
@@ -1196,30 +1220,40 @@
     });
   }
 
-  function showRailMeta(props, bounds) {
+  function showRailMeta(props, bounds, latlng) {
     const owner = classifyOwner(props);
-    const ownerInfo = CONFIG.OWNERS[Object.keys(CONFIG.OWNERS).find((k) => CONFIG.OWNERS[k].cls === owner)] || { name: owner.toUpperCase() };
+    const ownerName = (CONFIG.OWNERS[owner.toUpperCase()] || CONFIG.OWNERS[owner] || {}).name
+      || props.RROWNER1 || owner;
+    const tracks = props.TRACKS != null ? String(props.TRACKS) : "—";
+    const pass = (props.PASSNGR || "").toString().toUpperCase();
+    const passLabel = {
+      A: "Amtrak", B: "Amtrak + other", P: "Passenger", C: "Commuter",
+      N: "Freight only", F: "Freight", Y: "Yes",
+    }[pass] || (pass || "—");
+    const strac = (props.STRACNET || "").toString().toUpperCase();
+    const stracLabel = strac === "S" ? "STRACNET primary" : strac === "C" ? "STRACNET connector" : (strac || "—");
+    // Directional / subdivision presentation (dispatcher style)
+    const subdiv = props.SUBDIV || props.SUBDIVISION || "—";
+    const miles = props.MILES != null ? Number(props.MILES).toFixed(2) + " mi" : "—";
 
     const html = `
-      <div class="section-title">Ownership &amp; Control</div>
+      <div class="disp-badge">${escapeHtml(String(owner).toUpperCase())}</div>
       <div class="kv"><span class="k">Primary Owner</span><span class="v">${escapeHtml(props.RROWNER1 || "—")}</span></div>
-      <div class="kv"><span class="k">Owner 2</span><span class="v">${escapeHtml(props.RROWNER2 || "—")}</span></div>
-      <div class="kv"><span class="k">Owner 3</span><span class="v">${escapeHtml(props.RROWNER3 || "—")}</span></div>
-      <div class="kv"><span class="k">Classified As</span><span class="v"><span class="badge orange">${escapeHtml(ownerInfo.name || owner)}</span></span></div>
-
-      <div class="section-title">Infrastructure</div>
-      <div class="kv"><span class="k">Tracks</span><span class="v">${escapeHtml(props.TRACKS ?? "—")}</span></div>
-      <div class="kv"><span class="k">Subdivision</span><span class="v">${escapeHtml(props.SUBDIV || "—")}</span></div>
-      <div class="kv"><span class="k">Miles</span><span class="v">${escapeHtml(props.MILES ?? "—")}</span></div>
+      <div class="kv"><span class="k">Owner 2 / 3</span><span class="v">${escapeHtml([props.RROWNER2, props.RROWNER3].filter(Boolean).join(" · ") || "—")}</span></div>
+      <div class="kv"><span class="k">Trackage Rights</span><span class="v">${escapeHtml([props.TRKRGHTS1, props.TRKRGHTS2, props.TRKRGHTS3].filter(Boolean).join(" · ") || "—")}</span></div>
+      <div class="kv"><span class="k">Subdivision</span><span class="v">${escapeHtml(subdiv)}</span></div>
+      <div class="kv"><span class="k">Tracks</span><span class="v">${escapeHtml(tracks)}</span></div>
+      <div class="kv"><span class="k">Direction / Net</span><span class="v">Main · ${escapeHtml(tracks === "1" ? "single-track" : tracks === "2" ? "double-track bi-dir" : "multi-track")}</span></div>
+      <div class="kv"><span class="k">Passenger</span><span class="v">${escapeHtml(passLabel)}</span></div>
+      <div class="kv"><span class="k">STRACNET</span><span class="v">${escapeHtml(stracLabel)}</span></div>
       <div class="kv"><span class="k">State</span><span class="v">${escapeHtml(props.STATEAB || "—")}</span></div>
+      <div class="kv"><span class="k">Segment length</span><span class="v">${escapeHtml(miles)}</span></div>
+      <div class="kv"><span class="k">FRA ARC ID</span><span class="v">${escapeHtml(String(props.FRAARCID || props.OBJECTID || "—"))}</span></div>
       <div class="kv"><span class="k">Yard</span><span class="v">${escapeHtml(props.YARDNAME || "—")}</span></div>
-
-      <div class="section-title">Service Flags</div>
-      <div class="kv"><span class="k">Passenger</span><span class="v">${escapeHtml(props.PASSNGR || "—")}</span></div>
-      <div class="kv"><span class="k">STRACNET</span><span class="v">${escapeHtml(props.STRACNET || "—")}</span></div>
-      <div class="kv"><span class="k">FRA ARC ID</span><span class="v">${escapeHtml(props.FRAARCID || props.OBJECTID || "—")}</span></div>
+      <p class="disp-note">Dispatcher-style segment data from FRA/BTS NARN. Live CTC occupancy (TrainMon5/ATCS) is not publicly API-accessible.</p>
     `;
-    openMeta("Rail Segment — " + (props.RROWNER1 || "Unknown"), html);
+    const ll = latlng || (bounds && bounds.getCenter ? bounds.getCenter() : null);
+    openMeta("TRACK · " + (props.RROWNER1 || "Unknown") + (subdiv && subdiv !== "—" ? " · " + subdiv : ""), html, ll);
   }
 
   function showTrainMeta(t) {
@@ -1242,13 +1276,46 @@
       ${stations || "<em>No station list</em>"}
       <p style="margin-top:0.8rem;font-size:0.72rem;color:var(--text-muted)">Passenger data via Amtraker (community). Freight live positions are not public.</p>
     `;
-    openMeta(`Train ${t.trainNum} — ${t.routeName || ""}`, html);
+    openMeta(`Train ${t.trainNum} — ${t.routeName || ""}`, html, t.lat != null ? L.latLng(t.lat, t.lon) : null);
   }
 
-    function openMeta(title, bodyHtml) {
+  function openMeta(title, bodyHtml, latlng) {
+    const win = document.getElementById("meta-window");
     document.getElementById("meta-title").textContent = title;
     document.getElementById("meta-body").innerHTML = bodyHtml;
-    document.getElementById("meta-window").classList.remove("hidden");
+    win.classList.remove("hidden");
+    win.classList.add("dispatcher-panel");
+
+    // Position near clicked map point (dispatcher style); fall back to right dock
+    if (latlng && state.map) {
+      try {
+        const pt = state.map.latLngToContainerPoint(latlng);
+        const mapEl = document.getElementById("map");
+        const mapRect = mapEl.getBoundingClientRect();
+        const w = win.offsetWidth || 340;
+        const h = win.offsetHeight || 280;
+        let left = mapRect.left + pt.x + 16;
+        let top = mapRect.top + pt.y - 20;
+        // Keep on screen
+        if (left + w > window.innerWidth - 12) left = mapRect.left + pt.x - w - 16;
+        if (top + h > window.innerHeight - 12) top = window.innerHeight - h - 12;
+        if (left < 8) left = 8;
+        if (top < 60) top = 60;
+        win.style.left = left + "px";
+        win.style.top = top + "px";
+        win.style.right = "auto";
+        win.style.bottom = "auto";
+        win.classList.add("anchored");
+      } catch (e) {
+        win.classList.remove("anchored");
+        win.style.left = "";
+        win.style.top = "";
+      }
+    } else {
+      win.classList.remove("anchored");
+      win.style.left = "";
+      win.style.top = "";
+    }
   }
 
   // ---------- Search ----------
@@ -1288,23 +1355,23 @@
     const sys = document.getElementById("city-systems");
     if (sys) sys.textContent = c.systems || "";
 
-    // Force-enable layers that plot transit + passenger + local freight context
-    const enableKeys = [
-      "transitRoutes",
-      "transitStops",
-      "amtrakStations",
-      "passengerLines",
-      "class1only",
-      "amtrak",
-      "other",
-    ];
+    // Enable passenger context without forcing dense GTFS stops
+    const enableKeys = ["amtrakStations", "passengerLines", "amtrak", "other"];
     enableKeys.forEach((key) => {
       const el = document.querySelector(`input[data-layer="${key}"]`);
       if (!el) return;
       el.checked = true;
     });
-    // Put layer groups on the map immediately
-    ["transitRoutes", "transitSubway", "transitLightRail", "transitCommuter", "transitBus", "transitStops", "amtrakStations", "passengerLines"].forEach((key) => {
+    // Mount passenger layers; transit route types only if already checked by user
+    ["amtrakStations", "passengerLines"].forEach((key) => {
+      const el = document.querySelector(`input[data-layer="${key}"]`);
+      if (el) el.checked = true;
+      if (state.layers[key] && !state.map.hasLayer(state.layers[key])) {
+        state.layers[key].addTo(state.map);
+      }
+    });
+    ["transitSubway", "transitLightRail", "transitCommuter", "transitBus", "transitRoutes"].forEach((key) => {
+      if (!isLayerChecked(key)) return;
       if (state.layers[key] && !state.map.hasLayer(state.layers[key])) {
         state.layers[key].addTo(state.map);
       }

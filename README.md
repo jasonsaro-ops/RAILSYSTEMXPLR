@@ -48,3 +48,8 @@ Rather than shipping 50 large static GeoJSON files (tens of MB+), rails load **b
 - **OBJECTID cache** keeps features while panning (like PowerGrid)
 
 This stays fast on GitHub Pages without a huge static asset pack.
+
+
+## TrainMon5 / CTC
+
+TrainMon5 displays schematic CTC layouts fed by ATCSMonitor community servers. There is **no public HTTP API** for live occupancy we can embed on GitHub Pages. This dashboard uses FRA/BTS NARN for track topology and Amtraker for passenger GPS. Links to TrainMon5 layouts can be added as external references only.
