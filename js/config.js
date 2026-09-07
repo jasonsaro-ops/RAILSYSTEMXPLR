@@ -190,7 +190,8 @@ const CONFIG = {
   CITY_PRESETS: [
     { id: "nyc", name: "New York City", west: -74.28, south: 40.48, east: -73.68, north: 40.95, systems: "MTA Subway · LIRR · Metro-North · NJT" },
     { id: "chi", name: "Chicago", west: -88.0, south: 41.6, east: -87.4, north: 42.1, systems: "CTA · Metra" },
-    { id: "phi", name: "Philadelphia", west: -75.35, south: 39.85, east: -74.95, north: 40.15, systems: "SEPTA · PATCO" },
+    { id: "phi", name: "Philadelphia", west: -75.35, south: 39.85, east: -74.95, north: 40.15, systems: "SEPTA Regional Rail · Trolleys · MFL/BSL · PATCO" },
+    { id: "camden", name: "Camden / South Jersey", west: -75.15, south: 39.88, east: -74.88, north: 40.08, systems: "NJT River Line · PATCO · Atlantic City Line" },
     { id: "bos", name: "Boston", west: -71.25, south: 42.2, east: -70.9, north: 42.45, systems: "MBTA" },
     { id: "dc", name: "Washington DC", west: -77.25, south: 38.8, east: -76.85, north: 39.05, systems: "WMATA · VRE · MARC" },
     { id: "sf", name: "San Francisco Bay", west: -122.55, south: 37.45, east: -121.85, north: 37.95, systems: "BART · Muni · Caltrain" },

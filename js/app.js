@@ -87,6 +87,15 @@
         if (br && br.checked) loadBridges();
         if (ts && ts.checked) loadTransitStops();
         if (tr && tr.checked) loadTransitRoutes();
+        // Auto-load rail transit modes if checked (NJT River Line, SEPTA, light rail nationwide)
+        else if (
+          isLayerChecked("transitLightRail") ||
+          isLayerChecked("transitCommuter") ||
+          isLayerChecked("transitSubway") ||
+          isLayerChecked("transitBus")
+        ) {
+          loadTransitRoutes();
+        }
         if (pl && pl.checked) loadPassengerLines();
       }, 500);
     });
@@ -328,18 +337,13 @@
             state.layers.transitRoutes.addTo(state.map);
             loadTransitRoutes();
           } else state.map.removeLayer(state.layers.transitRoutes);
-        } else if (key === "transitSubway") {
-          if (el.checked) state.layers.transitSubway.addTo(state.map);
-          else state.map.removeLayer(state.layers.transitSubway);
-        } else if (key === "transitLightRail") {
-          if (el.checked) state.layers.transitLightRail.addTo(state.map);
-          else state.map.removeLayer(state.layers.transitLightRail);
-        } else if (key === "transitCommuter") {
-          if (el.checked) state.layers.transitCommuter.addTo(state.map);
-          else state.map.removeLayer(state.layers.transitCommuter);
-        } else if (key === "transitBus") {
-          if (el.checked) state.layers.transitBus.addTo(state.map);
-          else state.map.removeLayer(state.layers.transitBus);
+        } else if (key === "transitSubway" || key === "transitLightRail" || key === "transitCommuter" || key === "transitBus") {
+          if (el.checked) {
+            if (state.layers[key]) state.layers[key].addTo(state.map);
+            loadTransitRoutes(); // fetch NTM GTFS routes for all agencies in view (NJT, SEPTA, etc.)
+          } else if (state.layers[key]) {
+            state.map.removeLayer(state.layers[key]);
+          }
         } else if (key === "passengerLines") {
           if (el.checked) {
             state.layers.passengerLines.addTo(state.map);
@@ -363,9 +367,20 @@
       } else {
         state.map.setView(CONFIG.DEFAULT_CENTER, CONFIG.DEFAULT_ZOOM);
       }
-      // PowerGrid-style: load this state's rail "region" only
+      // NJ / PA / NY / etc. — enable local transit modes and load NTM (NJT, SEPTA, …)
+      const transitHeavy = ["NJ", "PA", "NY", "CA", "IL", "MA", "MD", "DC", "WA", "OR", "CO", "TX", "FL", "GA", "OH", "MN"];
+      if (st && transitHeavy.includes(st)) {
+        ["transitLightRail", "transitCommuter", "transitSubway"].forEach((key) => {
+          const el = document.querySelector(`input[data-layer="${key}"]`);
+          if (el) el.checked = true;
+          if (state.layers[key] && !state.map.hasLayer(state.layers[key])) {
+            state.layers[key].addTo(state.map);
+          }
+        });
+        setTimeout(() => loadTransitRoutes(), 500);
+      }
       setTimeout(loadRailsForView, 350);
-      toast(st ? ("Loading " + st + " rail network…") : "Nationwide view", "success");
+      toast(st ? ("Loading " + st + " rail + transit…") : "Nationwide view", "success");
     });
   }
 
@@ -1021,15 +1036,19 @@
 
   async function loadTransitRoutes() {
     // Split NTM routes by GTFS route_type for ALL agencies nationwide:
-    // 0 = tram/light rail, 1 = subway/metro, 2 = rail/commuter, 3 = bus
+    // 0 = tram/light rail (NJT River Line, HBLR, NLR, SEPTA trolleys…),
+    // 1 = subway/metro, 2 = rail/commuter (NJT/SEPTA/Metra…), 3 = bus
     const groups = {
       0: state.layers.transitLightRail,
       1: state.layers.transitSubway,
       2: state.layers.transitCommuter,
       3: state.layers.transitBus,
     };
-    Object.values(groups).forEach((g) => {
-      if (g && state.map && !state.map.hasLayer(g)) g.addTo(state.map);
+    const typeKey = { 0: "transitLightRail", 1: "transitSubway", 2: "transitCommuter", 3: "transitBus" };
+    // Mount only layers the user enabled
+    Object.entries(groups).forEach(([rt, g]) => {
+      const key = typeKey[rt];
+      if (g && state.map && isLayerChecked(key) && !state.map.hasLayer(g)) g.addTo(state.map);
     });
     // also keep combined group for backward compat
     if (!state.layers.transitRoutes) state.layers.transitRoutes = L.layerGroup();
@@ -1069,35 +1088,44 @@
       const colors = { 0: "#f472b6", 1: "#a855f7", 2: "#00c2ff", 3: "#22c55e" };
       const labels = { 0: "Light Rail / Tram", 1: "Subway / Metro", 2: "Commuter Rail", 3: "Bus" };
 
+      const agencies = new Set();
       geojson.features.forEach((f) => {
-        const t = Number(f.properties.route_type);
-        const target = groups[t] || state.layers.transitRoutes;
-        const color = colors[t] != null ? colors[t] : "#94a3b8";
-        const weight = t === 3 ? 2 : 3.5;
-        if (counts[t] != null) counts[t]++; else counts.other++;
+        const rt = Number(f.properties.route_type);
+        const key = typeKey[rt];
+        // Skip types user turned off (still count for toast)
+        if (key && !isLayerChecked(key) && !isLayerChecked("transitRoutes")) return;
+        const target = (key && isLayerChecked(key) ? groups[rt] : null)
+          || (isLayerChecked("transitRoutes") ? state.layers.transitRoutes : null);
+        if (!target) return;
+
+        const color = colors[rt] != null ? colors[rt] : "#94a3b8";
+        const weight = rt === 3 ? 2 : (rt === 0 || rt === 1 ? 4 : 3.5);
+        if (counts[rt] != null) counts[rt]++; else counts.other++;
+        if (f.properties.agency_id) agencies.add(String(f.properties.agency_id));
 
         L.geoJSON(f, {
-          style: { color, weight, opacity: 0.9 },
+          style: { color, weight, opacity: 0.92 },
           onEachFeature: (feat, layer) => {
             const p = feat.properties;
             const name = p.route_long_name || p.route_short_name || p.route_id || "Transit route";
             layer.on("click", (ev) => {
               openMeta(name, `
                 <div class="disp-badge">TRANSIT ROUTE</div>
-                <div class="section-title">${labels[t] || "Transit Route"}</div>
+                <div class="section-title">${labels[rt] || "Transit Route"}</div>
                 <div class="kv"><span class="k">Name</span><span class="v">${escapeHtml(name)}</span></div>
                 <div class="kv"><span class="k">Short name</span><span class="v">${escapeHtml(p.route_short_name || "—")}</span></div>
-                <div class="kv"><span class="k">Type</span><span class="v">${escapeHtml(p.route_type_text || labels[t] || String(t))}</span></div>
+                <div class="kv"><span class="k">Type</span><span class="v">${escapeHtml(p.route_type_text || labels[rt] || String(rt))}</span></div>
                 <div class="kv"><span class="k">Agency / NTD</span><span class="v">${escapeHtml(String(p.agency_id || ""))} · ${escapeHtml(String(p.ntd_id || ""))}</span></div>
                 <div class="kv"><span class="k">Route ID</span><span class="v">${escapeHtml(String(p.route_id || "—"))}</span></div>
-                <p class="disp-note">National Transit Map (BTS) — GTFS routes nationwide.</p>
+                <p class="disp-note">National Transit Map (BTS GTFS) — includes NJ Transit, SEPTA, PATCO, and agencies nationwide.</p>
               `, ev.latlng);
             });
           },
         }).addTo(target);
       });
 
-      toast(`Transit: subway ${counts[1]} · light rail ${counts[0]} · commuter ${counts[2]} · bus ${counts[3]}`, "success");
+      const ag = [...agencies].slice(0, 8).join(", ");
+      toast(`Transit: LR ${counts[0]} · subway ${counts[1]} · rail ${counts[2]} · bus ${counts[3]}${ag ? " · " + ag : ""}`, "success");
     } catch (e) {
       console.error("transit routes", e);
       toast("Transit routes load error — " + (e.message || "see console"), "error");
@@ -1494,8 +1522,8 @@
     const sys = document.getElementById("city-systems");
     if (sys) sys.textContent = c.systems || "";
 
-    // Enable passenger context without forcing dense GTFS stops
-    const enableKeys = ["amtrakStations", "passengerLines", "amtrak", "other"];
+    // Enable passenger + local rail transit (NJT/SEPTA/light rail) without forcing all bus stops
+    const enableKeys = ["amtrakStations", "passengerLines", "amtrak", "other", "transitLightRail", "transitCommuter", "transitSubway"];
     enableKeys.forEach((key) => {
       const el = document.querySelector(`input[data-layer="${key}"]`);
       if (!el) return;
