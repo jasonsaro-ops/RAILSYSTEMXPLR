@@ -12,15 +12,15 @@
   --warn: #ffb020;
   --info: #4dabf7;
 
-  /* Railroad colors */
-  --bnsf: #ff6b00;
-  --up: #ffd100;
-  --csx: #0057b8;
-  --ns: #000000;
-  --cn: #ed1c24;
-  --cpkc: #8b0000;
-  --amtrak: #00a3e0;
-  --other: #7a8a9e;
+  /* Railroad colors — tuned for dark basemap contrast */
+  --bnsf: #ff8c1a;
+  --up: #ffe566;
+  --csx: #4db8ff;
+  --ns: #b8f53d;
+  --cn: #ff4d5e;
+  --cpkc: #ff6b9d;
+  --amtrak: #3dfff0;
+  --other: #a8b8cc;
   --train: #00ff9d;
   --yard: #c77dff;
 
@@ -316,7 +316,7 @@ html, body {
 .swatch.bnsf { background: var(--bnsf); }
 .swatch.up { background: var(--up); }
 .swatch.csx { background: var(--csx); }
-.swatch.ns { background: #e0e0e0; border: 1px solid #555; }
+.swatch.ns { background: var(--ns); border: 1px solid rgba(184,245,61,0.5); }
 .swatch.cn { background: var(--cn); }
 .swatch.cpkc { background: var(--cpkc); }
 .swatch.amtrak { background: var(--amtrak); }

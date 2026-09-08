@@ -453,21 +453,21 @@
 
   function styleForOwner(cls, props, zoom) {
     const colors = {
-      bnsf: "#ff6b00",
-      up: "#ffd100",
-      csx: "#3d8bfd",
-      ns: "#e8e8e8",
-      cn: "#ed1c24",
-      cpkc: "#c41e3a",
-      amtrak: "#00c2ff",
-      other: "#6b7c93",
+      bnsf: "#ff8c1a",   // orange — high contrast
+      up: "#ffe566",     // bright gold
+      csx: "#4db8ff",    // sky blue
+      ns: "#b8f53d",     // lime — visible vs dark (not near-white/black)
+      cn: "#ff4d5e",     // bright red
+      cpkc: "#ff6b9d",   // rose
+      amtrak: "#3dfff0", // cyan
+      other: "#a8b8cc",  // light steel
     };
     const z = zoom != null ? zoom : (state.map ? state.map.getZoom() : 6);
-    let weight = cls === "amtrak" ? 3.2 : 2.4;
-    if (z <= 5) weight = cls === "amtrak" ? 2.0 : 1.4;
-    else if (z <= 7) weight = cls === "amtrak" ? 2.6 : 1.8;
-    else if (z >= 12) weight = cls === "amtrak" ? 4 : 3;
-    const opacity = cls === "other" ? 0.5 : 0.9;
+    let weight = cls === "amtrak" ? 3.5 : 2.8;
+    if (z <= 5) weight = cls === "amtrak" ? 2.2 : 1.8;
+    else if (z <= 7) weight = cls === "amtrak" ? 2.8 : 2.2;
+    else if (z >= 12) weight = cls === "amtrak" ? 4.5 : 3.4;
+    const opacity = cls === "other" ? 0.75 : 0.95;
     return {
       color: colors[cls] || colors.other,
       weight,
@@ -1499,7 +1499,18 @@
       ${profileHtml}
       <div class="section-title">All NARN attributes (this segment)</div>
       ${allRows || "<em>No attributes returned</em>"}
-      <p class="disp-note">Source: FRA/BTS North American Rail Network. Proprietary CTC/AEI/hot-box data is not public. Carrier ops systems (UP/BNSF/CSX/NS/CN/CPKC) do not publish live freight GPS APIs.</p>
+      <div class="section-title">Authoritative data sources</div>
+      <div class="kv"><span class="k">Geometry / ownership</span><span class="v">FRA + BTS NARN (NTAD)</span></div>
+      <div class="kv"><span class="k">Track class / crossings</span><span class="v">FRA GIS &amp; crossing inventory</span></div>
+      <div class="kv"><span class="k">Regulatory network</span><span class="v">STB Railroad Map Depot</span></div>
+      <div class="kv"><span class="k">Detail overlay</span><span class="v">OpenRailwayMap (OSM)</span></div>
+      <p style="margin:0.45rem 0 0.2rem;font-size:0.72rem;line-height:1.45">
+        <a class="ext-link" href="https://geodata.bts.gov/datasets/usdot::north-american-rail-network-lines/about" target="_blank" rel="noopener">BTS NARN ↗</a>
+        · <a class="ext-link" href="https://railroads.dot.gov/" target="_blank" rel="noopener">FRA ↗</a>
+        · <a class="ext-link" href="https://www.stb.gov/" target="_blank" rel="noopener">STB ↗</a>
+        · <a class="ext-link" href="https://www.openrailwaymap.org/" target="_blank" rel="noopener">OpenRailwayMap ↗</a>
+      </p>
+      <p class="disp-note">Segment attributes are the full public NARN record. Live freight GPS, CTC occupancy, and wayside detectors are not published by Class I carriers.</p>
     `;
     const ll = latlng || (bounds && bounds.getCenter ? bounds.getCenter() : null);
     openMeta("TRACK · " + (props.RROWNER1 || ownerName) + (subdiv && subdiv !== "—" ? " · " + subdiv : ""), html, ll);

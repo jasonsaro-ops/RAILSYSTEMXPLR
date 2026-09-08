@@ -120,18 +120,27 @@ const CONFIG = {
 
   // Railroad owner codes → display name & CSS class
   OWNERS: {
-    BNSF: { name: "BNSF Railway", cls: "bnsf", color: "#ff6b00" },
-    UP:   { name: "Union Pacific", cls: "up", color: "#ffd100" },
-    CSXT: { name: "CSX Transportation", cls: "csx", color: "#0057b8" },
-    CSX:  { name: "CSX Transportation", cls: "csx", color: "#0057b8" },
-    NS:   { name: "Norfolk Southern", cls: "ns", color: "#e0e0e0" },
-    CN:   { name: "Canadian National", cls: "cn", color: "#ed1c24" },
-    CPKC: { name: "Canadian Pacific Kansas City", cls: "cpkc", color: "#8b0000" },
-    CP:   { name: "Canadian Pacific Kansas City", cls: "cpkc", color: "#8b0000" },
-    KCS:  { name: "Canadian Pacific Kansas City", cls: "cpkc", color: "#8b0000" },
-    ATK:  { name: "Amtrak", cls: "amtrak", color: "#00a3e0" },
-    AMTK: { name: "Amtrak", cls: "amtrak", color: "#00a3e0" },
+    BNSF: { name: "BNSF Railway", cls: "bnsf", color: "#ff8c1a" },
+    UP:   { name: "Union Pacific", cls: "up", color: "#ffe566" },
+    CSXT: { name: "CSX Transportation", cls: "csx", color: "#4db8ff" },
+    CSX:  { name: "CSX Transportation", cls: "csx", color: "#4db8ff" },
+    NS:   { name: "Norfolk Southern", cls: "ns", color: "#b8f53d" },
+    CN:   { name: "Canadian National", cls: "cn", color: "#ff4d5e" },
+    CPKC: { name: "Canadian Pacific Kansas City", cls: "cpkc", color: "#ff6b9d" },
+    CP:   { name: "Canadian Pacific Kansas City", cls: "cpkc", color: "#ff6b9d" },
+    KCS:  { name: "Canadian Pacific Kansas City", cls: "cpkc", color: "#ff6b9d" },
+    ATK:  { name: "Amtrak", cls: "amtrak", color: "#3dfff0" },
+    AMTK: { name: "Amtrak", cls: "amtrak", color: "#3dfff0" },
   },
+
+  DATA_SOURCES: {
+    fra: { name: "FRA Geospatial / Safety Data", url: "https://railroads.dot.gov/" },
+    bts: { name: "BTS NTAD North American Rail Network", url: "https://geodata.bts.gov/datasets/usdot::north-american-rail-network-lines/about" },
+    stb: { name: "STB Railroad Map Depot", url: "https://www.stb.gov/" },
+    orm: { name: "OpenRailwayMap (OSM)", url: "https://www.openrailwaymap.org/" },
+    ntm: { name: "National Transit Map (BTS)", url: "https://geodata.bts.gov/datasets/usdot::national-transit-map-routes/about" },
+  },
+
 
   // Approximate state bounding boxes (for filter + fly-to)
   STATE_BOUNDS: {
