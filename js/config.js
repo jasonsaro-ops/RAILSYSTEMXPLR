@@ -12,6 +12,10 @@ const CONFIG = {
   RAILROAD_BRIDGES: "https://services.arcgis.com/xOi1kZaI0eWDREZv/arcgis/rest/services/NTAD_Railroad_Bridges/FeatureServer/0",
   NTM_STOPS: "https://services.arcgis.com/xOi1kZaI0eWDREZv/arcgis/rest/services/NTAD_National_Transit_Map_Stops/FeatureServer/0",
   NTM_ROUTES: "https://services.arcgis.com/xOi1kZaI0eWDREZv/arcgis/rest/services/NTAD_National_Transit_Map_Routes/FeatureServer/0",
+  AMTRAK_ROUTES: "https://services.arcgis.com/xOi1kZaI0eWDREZv/arcgis/rest/services/NTAD_Amtrak_Routes/FeatureServer/0",
+  FRA_DISTRICTS: "https://services.arcgis.com/xOi1kZaI0eWDREZv/arcgis/rest/services/NTAD_DOT_FRA_Districts/FeatureServer/1",
+  // OpenStreetMap / OpenRailwayMap attribute query (Overpass) — same source ORM tiles use
+  OVERPASS_URL: "https://overpass-api.de/api/interpreter",
   PASSENGER_RAIL_LINES: "https://services.arcgis.com/xOi1kZaI0eWDREZv/arcgis/rest/services/NTAD_North_American_Rail_Network_Lines_Passenger_Rail/FeatureServer/0",
 
   // Official Class I Freight Railroads View (BNSF, UP, CSX, NS, CN, CPKC)

@@ -25,6 +25,8 @@
       transitCommuter: L.layerGroup(),
       transitBus: L.layerGroup(),
       passengerLines: L.layerGroup(),
+      amtrakRoutes: L.layerGroup(),
+      fraDistricts: L.layerGroup(),
     },
     useClass1Only: false,
     activeState: null, // two-letter state focus (PowerGrid-style region)
@@ -100,6 +102,8 @@
           }
         }, 600);
         if (pl && pl.checked) loadPassengerLines();
+        if (isLayerChecked("amtrakRoutes")) loadAmtrakRoutes();
+        if (isLayerChecked("fraDistricts")) loadFraDistricts();
       }, 500);
     });
 
@@ -352,6 +356,16 @@
             state.layers.passengerLines.addTo(state.map);
             loadPassengerLines();
           } else state.map.removeLayer(state.layers.passengerLines);
+        } else if (key === "amtrakRoutes") {
+          if (el.checked) {
+            state.layers.amtrakRoutes.addTo(state.map);
+            loadAmtrakRoutes();
+          } else state.map.removeLayer(state.layers.amtrakRoutes);
+        } else if (key === "fraDistricts") {
+          if (el.checked) {
+            state.layers.fraDistricts.addTo(state.map);
+            loadFraDistricts();
+          } else state.map.removeLayer(state.layers.fraDistricts);
         } else {
           applyRailVisibility();
         }
@@ -1446,7 +1460,133 @@
     });
   }
 
-  function showRailMeta(props, bounds, latlng) {
+
+  async function loadAmtrakRoutes() {
+    if (!CONFIG.AMTRAK_ROUTES || !isLayerChecked("amtrakRoutes")) return;
+    const bounds = state.map.getBounds();
+    const geom = {
+      xmin: bounds.getWest(), ymin: bounds.getSouth(),
+      xmax: bounds.getEast(), ymax: bounds.getNorth(),
+      spatialReference: { wkid: 4326 },
+    };
+    const params = new URLSearchParams({
+      f: "geojson", where: "1=1", outFields: "*",
+      geometry: JSON.stringify(geom), geometryType: "esriGeometryEnvelope",
+      inSR: "4326", spatialRel: "esriSpatialRelIntersects", outSR: "4326",
+      resultRecordCount: "500", maxAllowableOffset: "0.005",
+    });
+    try {
+      const res = await fetch(CONFIG.AMTRAK_ROUTES + "/query?" + params);
+      if (!res.ok) return;
+      const gj = await res.json();
+      if (!gj.features) return;
+      state.layers.amtrakRoutes.clearLayers();
+      L.geoJSON(gj, {
+        style: { color: "#3dfff0", weight: 2.5, opacity: 0.85, dashArray: "6 4" },
+        onEachFeature: (f, layer) => {
+          layer.on("click", (ev) => {
+            const p = f.properties || {};
+            const rows = Object.keys(p).filter((k) => !/^SHAPE/i.test(k) && p[k] != null && p[k] !== "")
+              .slice(0, 40).map((k) => `<div class="kv"><span class="k">${escapeHtml(k)}</span><span class="v">${escapeHtml(String(p[k]))}</span></div>`).join("");
+            openMeta("Amtrak Route (FRA/BTS)", `<div class="disp-badge">AMTRAK ROUTE · NTAD</div>${rows}`, ev.latlng);
+          });
+        },
+      }).addTo(state.layers.amtrakRoutes);
+      toast("Amtrak routes (NTAD): " + gj.features.length, "success");
+    } catch (e) {
+      console.warn("amtrak routes", e);
+    }
+  }
+
+  async function loadFraDistricts() {
+    if (!CONFIG.FRA_DISTRICTS || !isLayerChecked("fraDistricts")) return;
+    const bounds = state.map.getBounds();
+    const geom = {
+      xmin: bounds.getWest(), ymin: bounds.getSouth(),
+      xmax: bounds.getEast(), ymax: bounds.getNorth(),
+      spatialReference: { wkid: 4326 },
+    };
+    const params = new URLSearchParams({
+      f: "geojson", where: "1=1", outFields: "*",
+      geometry: JSON.stringify(geom), geometryType: "esriGeometryEnvelope",
+      inSR: "4326", spatialRel: "esriSpatialRelIntersects", outSR: "4326",
+      resultRecordCount: "50",
+    });
+    try {
+      const res = await fetch(CONFIG.FRA_DISTRICTS + "/query?" + params);
+      if (!res.ok) return;
+      const gj = await res.json();
+      if (!gj.features) return;
+      state.layers.fraDistricts.clearLayers();
+      L.geoJSON(gj, {
+        style: { color: "#00d4aa", weight: 1, fillColor: "#00d4aa", fillOpacity: 0.06 },
+        onEachFeature: (f, layer) => {
+          layer.on("click", (ev) => {
+            const p = f.properties || {};
+            const rows = Object.keys(p).filter((k) => !/^SHAPE/i.test(k) && p[k] != null)
+              .map((k) => `<div class="kv"><span class="k">${escapeHtml(k)}</span><span class="v">${escapeHtml(String(p[k]))}</span></div>`).join("");
+            openMeta("FRA District", `<div class="disp-badge">FRA · BTS NTAD</div>${rows}`, ev.latlng);
+          });
+        },
+      }).addTo(state.layers.fraDistricts);
+      toast("FRA districts loaded", "success");
+    } catch (e) {
+      console.warn("fra districts", e);
+    }
+  }
+
+  /** Pull OpenRailwayMap/OSM tags for the clicked location (maxspeed, electrified, gauge, usage…) */
+  async function fetchOsmRailTags(lat, lon) {
+    if (lat == null || lon == null || !CONFIG.OVERPASS_URL) return null;
+    const radius = 75; // meters
+    const query = `[out:json][timeout:12];(way["railway"](around:${radius},${lat},${lon}););out tags center 8;`;
+    try {
+      const res = await fetch(CONFIG.OVERPASS_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: "data=" + encodeURIComponent(query),
+      });
+      if (!res.ok) return null;
+      const data = await res.json();
+      const els = (data.elements || []).filter((e) => e.tags && e.tags.railway);
+      if (!els.length) return null;
+      // Prefer mainline over service
+      els.sort((a, b) => {
+        const score = (t) => (t.railway === "rail" ? 0 : 1) + (t.usage === "main" ? 0 : 1);
+        return score(a.tags) - score(b.tags);
+      });
+      return els[0].tags;
+    } catch (e) {
+      console.warn("Overpass", e.message || e);
+      return null;
+    }
+  }
+
+  function osmTagsHtml(tags) {
+    if (!tags) return `<p class="disp-note">No OpenStreetMap railway tags within 75 m (coverage varies).</p>`;
+    const prefer = [
+      "name", "ref", "railway", "usage", "service", "maxspeed", "maxspeed:forward", "maxspeed:backward",
+      "electrified", "voltage", "frequency", "gauge", "bridge", "tunnel", "tracks",
+      "railway:traffic_mode", "highspeed", "operator", "owner", "passenger_lines",
+    ];
+    const seen = new Set();
+    let rows = "";
+    prefer.forEach((k) => {
+      if (tags[k] == null || tags[k] === "") return;
+      seen.add(k);
+      rows += `<div class="kv"><span class="k">${escapeHtml(k)}</span><span class="v">${escapeHtml(String(tags[k]))}</span></div>`;
+    });
+    Object.keys(tags).forEach((k) => {
+      if (seen.has(k) || k === "source") return;
+      rows += `<div class="kv"><span class="k">${escapeHtml(k)}</span><span class="v">${escapeHtml(String(tags[k]))}</span></div>`;
+    });
+    return `<div class="disp-badge">OPENRAILWAYMAP / OSM</div>
+      <div class="section-title">Infrastructure detail (community OSM)</div>
+      ${rows}
+      <p class="disp-note">Same OpenStreetMap data OpenRailwayMap renders. Not FRA authoritative ownership.</p>`;
+  }
+
+  async function showRailMeta(props, bounds, latlng) {
     const owner = classifyOwner(props);
     const profile = (CONFIG.CLASS1_PROFILES && CONFIG.CLASS1_PROFILES[owner]) || null;
     const ownerName = (profile && profile.name)
@@ -1499,21 +1639,23 @@
       ${profileHtml}
       <div class="section-title">All NARN attributes (this segment)</div>
       ${allRows || "<em>No attributes returned</em>"}
-      <div class="section-title">Authoritative data sources</div>
-      <div class="kv"><span class="k">Geometry / ownership</span><span class="v">FRA + BTS NARN (NTAD)</span></div>
-      <div class="kv"><span class="k">Track class / crossings</span><span class="v">FRA GIS &amp; crossing inventory</span></div>
-      <div class="kv"><span class="k">Regulatory network</span><span class="v">STB Railroad Map Depot</span></div>
-      <div class="kv"><span class="k">Detail overlay</span><span class="v">OpenRailwayMap (OSM)</span></div>
-      <p style="margin:0.45rem 0 0.2rem;font-size:0.72rem;line-height:1.45">
-        <a class="ext-link" href="https://geodata.bts.gov/datasets/usdot::north-american-rail-network-lines/about" target="_blank" rel="noopener">BTS NARN ↗</a>
-        · <a class="ext-link" href="https://railroads.dot.gov/" target="_blank" rel="noopener">FRA ↗</a>
-        · <a class="ext-link" href="https://www.stb.gov/" target="_blank" rel="noopener">STB ↗</a>
-        · <a class="ext-link" href="https://www.openrailwaymap.org/" target="_blank" rel="noopener">OpenRailwayMap ↗</a>
-      </p>
-      <p class="disp-note">Segment attributes are the full public NARN record. Live freight GPS, CTC occupancy, and wayside detectors are not published by Class I carriers.</p>
+      <div id="osm-rail-detail"><p class="disp-note">Loading OpenRailwayMap/OSM detail…</p></div>
+      <div class="section-title">Federal data (already on this segment)</div>
+      <div class="kv"><span class="k">Primary dataset</span><span class="v">FRA / BTS NARN NTAD</span></div>
+      <div class="kv"><span class="k">Crossing inventory</span><span class="v">FRA Form 6180.71 via BTS</span></div>
+      <div class="kv"><span class="k">Passenger routes</span><span class="v">NTAD Amtrak Routes / NTM</span></div>
+      <p class="disp-note">NARN attributes above are live from the federal FeatureServer — not a static link. OSM block merges community track detail (speeds, power, gauge).</p>
     `;
     const ll = latlng || (bounds && bounds.getCenter ? bounds.getCenter() : null);
-    openMeta("TRACK · " + (props.RROWNER1 || ownerName) + (subdiv && subdiv !== "—" ? " · " + subdiv : ""), html, ll);
+    const title = "TRACK · " + (props.RROWNER1 || ownerName) + (subdiv && subdiv !== "—" ? " · " + subdiv : "");
+    openMeta(title, html, ll);
+    // Merge OpenRailwayMap/OSM tags into the open panel
+    const lat = ll && (ll.lat != null ? ll.lat : ll[0]);
+    const lon = ll && (ll.lng != null ? ll.lng : ll.lon != null ? ll.lon : ll[1]);
+    fetchOsmRailTags(lat, lon).then((tags) => {
+      const el = document.getElementById("osm-rail-detail");
+      if (el) el.innerHTML = osmTagsHtml(tags);
+    });
   }
 
   function showTrainMeta(t, latlng) {
