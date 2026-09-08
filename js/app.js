@@ -86,16 +86,19 @@
         if (mp && mp.checked) loadMileposts();
         if (br && br.checked) loadBridges();
         if (ts && ts.checked) loadTransitStops();
-        if (tr && tr.checked) loadTransitRoutes();
-        // Auto-load rail transit modes if checked (NJT River Line, SEPTA, light rail nationwide)
-        else if (
-          isLayerChecked("transitLightRail") ||
-          isLayerChecked("transitCommuter") ||
-          isLayerChecked("transitSubway") ||
-          isLayerChecked("transitBus")
-        ) {
-          loadTransitRoutes();
-        }
+        // Debounce heavy NTM queries — avoid 504 storms while panning
+        clearTimeout(state._transitMoveTimer);
+        state._transitMoveTimer = setTimeout(() => {
+          if (
+            isLayerChecked("transitRoutes") ||
+            isLayerChecked("transitLightRail") ||
+            isLayerChecked("transitCommuter") ||
+            isLayerChecked("transitSubway") ||
+            isLayerChecked("transitBus")
+          ) {
+            loadTransitRoutes();
+          }
+        }, 600);
         if (pl && pl.checked) loadPassengerLines();
       }, 500);
     });
@@ -766,12 +769,58 @@
     return p.NAME || p.YARDNAME || p.name || p.YardName || "Rail Yard";
   }
 
-  async function loadPointLayer(endpoint, layerGroup, cacheKey, titleFn) {
-    // PowerGrid-style: keep already-loaded features; only fetch missing IDs for current viewport
-    if (state.map.getZoom() < 9 && cacheKey !== "yards") {
-      // Nodes/crossings dense — only show when reasonably zoomed
-      return;
+  /** Extract a valid LatLng from Point, MultiPoint, Polygon, or MultiPolygon GeoJSON */
+  function geometryToLatLng(geometry) {
+    if (!geometry || !geometry.coordinates) return null;
+    const type = geometry.type;
+    let coords = geometry.coordinates;
+    try {
+      if (type === "Point") {
+        const lon = Number(coords[0]), lat = Number(coords[1]);
+        if (Number.isFinite(lat) && Number.isFinite(lon)) return L.latLng(lat, lon);
+        return null;
+      }
+      if (type === "MultiPoint") {
+        if (!coords[0]) return null;
+        return geometryToLatLng({ type: "Point", coordinates: coords[0] });
+      }
+      // Polygon: [ [ [lon,lat], ... ] ] — use first ring centroid
+      if (type === "Polygon" || type === "MultiLineString") {
+        const ring = type === "Polygon" ? coords[0] : coords[0];
+        return ringCentroid(ring);
+      }
+      if (type === "MultiPolygon") {
+        const ring = coords[0] && coords[0][0];
+        return ringCentroid(ring);
+      }
+      if (type === "LineString") {
+        return ringCentroid(coords);
+      }
+    } catch (e) {
+      return null;
     }
+    return null;
+  }
+
+  function ringCentroid(ring) {
+    if (!ring || !ring.length) return null;
+    let sx = 0, sy = 0, n = 0;
+    for (let i = 0; i < ring.length; i++) {
+      const c = ring[i];
+      if (!c || c.length < 2) continue;
+      const lon = Number(c[0]), lat = Number(c[1]);
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
+      sx += lon; sy += lat; n++;
+    }
+    if (!n) return null;
+    return L.latLng(sy / n, sx / n);
+  }
+
+  async function loadPointLayer(endpoint, layerGroup, cacheKey, titleFn) {
+    if (!endpoint || !layerGroup || !state.map) return;
+    if (state.map.getZoom() < 9 && cacheKey !== "yards") return;
+    if (!state.pointCache[cacheKey]) state.pointCache[cacheKey] = new Map();
+
     const bounds = state.map.getBounds();
     const geom = {
       xmin: bounds.getWest(),
@@ -782,7 +831,7 @@
     };
     const outFields = cacheKey === "nodes"
       ? "OBJECTID,FRANODEID,COUNTRY,STATE,STFIPS,CTYFIPS,STCYFIPS,FRADISTRCT,PASSNGR,PASSNGRSTN,BNDRY"
-      : "*";
+      : "OBJECTID,NAME,YARDNAME,RROWNER1,STATE,STATEAB,CITY";
     const params = new URLSearchParams({
       f: "geojson",
       where: "1=1",
@@ -792,21 +841,31 @@
       inSR: "4326",
       spatialRel: "esriSpatialRelIntersects",
       outSR: "4326",
-      resultRecordCount: "2000",
+      resultRecordCount: "500",
+      maxAllowableOffset: "0.002",
     });
     try {
-      const res = await fetch(`${endpoint}/query?${params}`);
-      const geojson = await res.json();
-      if (!geojson.features) return;
+      const res = await fetch(endpoint + "/query?" + params.toString());
+      if (!res.ok) {
+        console.warn(cacheKey + " HTTP " + res.status);
+        return;
+      }
+      const text = await res.text();
+      if (!text) return;
+      let geojson;
+      try { geojson = JSON.parse(text); } catch (e) {
+        console.warn(cacheKey + " bad JSON");
+        return;
+      }
+      if (geojson.error || !geojson.features) return;
       const cache = state.pointCache[cacheKey];
       let added = 0;
       geojson.features.forEach((feature) => {
-        const key = featureKey(feature.properties, cacheKey);
+        if (!feature || !feature.geometry) return;
+        const key = featureKey(feature.properties || {}, cacheKey);
         if (cache.has(key)) return;
-        const latlng = L.latLng(
-          feature.geometry.coordinates[1],
-          feature.geometry.coordinates[0]
-        );
+        const latlng = geometryToLatLng(feature.geometry);
+        if (!latlng) return;
         const layer = pointToMarker(feature, latlng, cacheKey, titleFn);
         if (!layer) return;
         layer._rsxKey = key;
@@ -815,9 +874,9 @@
         cache.set(key, layer);
         added++;
       });
-      if (added) toast(`${cacheKey}: +${added} features`, "success");
+      if (added) toast(cacheKey + ": +" + added + " features", "success");
     } catch (e) {
-      console.error(cacheKey + " load error", e);
+      console.warn(cacheKey + " load error", e.message || e);
     }
   }
 
@@ -1035,9 +1094,7 @@
   }
 
   async function loadTransitRoutes() {
-    // Split NTM routes by GTFS route_type for ALL agencies nationwide:
-    // 0 = tram/light rail (NJT River Line, HBLR, NLR, SEPTA trolleys…),
-    // 1 = subway/metro, 2 = rail/commuter (NJT/SEPTA/Metra…), 3 = bus
+    // NTM can 504 on large envelopes — request only enabled route types, small pages, abort stale
     const groups = {
       0: state.layers.transitLightRail,
       1: state.layers.transitSubway,
@@ -1045,17 +1102,29 @@
       3: state.layers.transitBus,
     };
     const typeKey = { 0: "transitLightRail", 1: "transitSubway", 2: "transitCommuter", 3: "transitBus" };
-    // Mount only layers the user enabled
+    const enabledTypes = [];
+    Object.entries(typeKey).forEach(([rt, key]) => {
+      if (isLayerChecked(key)) enabledTypes.push(Number(rt));
+    });
+    if (!enabledTypes.length && !isLayerChecked("transitRoutes")) return;
+    // If only "all routes" is on, load rail modes (skip bus to avoid timeouts)
+    const types = enabledTypes.length ? enabledTypes : [0, 1, 2];
+
     Object.entries(groups).forEach(([rt, g]) => {
       const key = typeKey[rt];
       if (g && state.map && isLayerChecked(key) && !state.map.hasLayer(g)) g.addTo(state.map);
     });
-    // also keep combined group for backward compat
     if (!state.layers.transitRoutes) state.layers.transitRoutes = L.layerGroup();
-    // Only show combined routes layer when its checkbox is on; typed layers controlled separately
     if (isLayerChecked("transitRoutes") && !state.map.hasLayer(state.layers.transitRoutes)) {
       state.layers.transitRoutes.addTo(state.map);
     }
+
+    if (state._transitAbort) {
+      try { state._transitAbort.abort(); } catch (e) {}
+    }
+    state._transitAbort = typeof AbortController !== "undefined" ? new AbortController() : null;
+    const signal = state._transitAbort ? state._transitAbort.signal : undefined;
+    const token = (state._transitToken = (state._transitToken || 0) + 1);
 
     const bounds = state.map.getBounds();
     const geom = {
@@ -1063,75 +1132,102 @@
       xmax: bounds.getEast(), ymax: bounds.getNorth(),
       spatialReference: { wkid: 4326 },
     };
+    const where = "route_type IN (" + types.join(",") + ")";
+    const zoom = state.map.getZoom();
     const params = new URLSearchParams({
       f: "geojson",
-      where: "1=1",
-      outFields: "OBJECTID,route_id,route_short_name,route_long_name,route_type,route_type_text,agency_id,ntd_id,route_color,route_text_color",
+      where: where,
+      outFields: "OBJECTID,route_id,route_short_name,route_long_name,route_type,route_type_text,agency_id,ntd_id",
       geometry: JSON.stringify(geom),
       geometryType: "esriGeometryEnvelope",
       inSR: "4326",
       spatialRel: "esriSpatialRelIntersects",
       outSR: "4326",
-      resultRecordCount: "2000",
-      maxAllowableOffset: state.map.getZoom() < 9 ? "0.01" : "0.001",
+      resultRecordCount: zoom >= 12 ? "800" : "400",
+      maxAllowableOffset: zoom < 10 ? "0.02" : zoom < 12 ? "0.005" : "0.001",
     });
-    try {
-      const res = await fetch(`${CONFIG.NTM_ROUTES}/query?${params}`);
-      const geojson = await res.json();
-      if (!geojson.features) return;
 
-      // clear mode groups + combined
-      Object.values(groups).forEach((g) => g && g.clearLayers());
-      state.layers.transitRoutes.clearLayers();
+    try {
+      const res = await fetch(CONFIG.NTM_ROUTES + "/query?" + params.toString(), { signal });
+      if (token !== state._transitToken) return; // stale
+      if (!res.ok) {
+        console.warn("NTM routes HTTP", res.status);
+        toast("Transit map busy (" + res.status + ") — zoom in or retry", "error");
+        return;
+      }
+      const text = await res.text();
+      if (token !== state._transitToken) return;
+      if (!text) return;
+      let geojson;
+      try { geojson = JSON.parse(text); } catch (e) {
+        toast("Transit response incomplete — try zooming in", "error");
+        return;
+      }
+      if (geojson.error) {
+        toast("Transit: " + (geojson.error.message || "query error"), "error");
+        return;
+      }
+      if (!geojson.features || !geojson.features.length) {
+        toast("No transit routes in view", "error");
+        return;
+      }
+
+      types.forEach((rt) => {
+        if (groups[rt]) groups[rt].clearLayers();
+      });
+      if (isLayerChecked("transitRoutes")) state.layers.transitRoutes.clearLayers();
 
       const counts = { 0: 0, 1: 0, 2: 0, 3: 0, other: 0 };
       const colors = { 0: "#f472b6", 1: "#a855f7", 2: "#00c2ff", 3: "#22c55e" };
       const labels = { 0: "Light Rail / Tram", 1: "Subway / Metro", 2: "Commuter Rail", 3: "Bus" };
-
       const agencies = new Set();
+
       geojson.features.forEach((f) => {
-        const rt = Number(f.properties.route_type);
+        if (!f || !f.geometry) return;
+        const rt = Number(f.properties && f.properties.route_type);
         const key = typeKey[rt];
-        // Skip types user turned off (still count for toast)
         if (key && !isLayerChecked(key) && !isLayerChecked("transitRoutes")) return;
         const target = (key && isLayerChecked(key) ? groups[rt] : null)
           || (isLayerChecked("transitRoutes") ? state.layers.transitRoutes : null);
         if (!target) return;
-
         const color = colors[rt] != null ? colors[rt] : "#94a3b8";
         const weight = rt === 3 ? 2 : (rt === 0 || rt === 1 ? 4 : 3.5);
         if (counts[rt] != null) counts[rt]++; else counts.other++;
-        if (f.properties.agency_id) agencies.add(String(f.properties.agency_id));
+        if (f.properties && f.properties.agency_id) agencies.add(String(f.properties.agency_id));
 
-        L.geoJSON(f, {
-          style: { color, weight, opacity: 0.92 },
-          onEachFeature: (feat, layer) => {
-            const p = feat.properties;
-            const name = p.route_long_name || p.route_short_name || p.route_id || "Transit route";
-            layer.on("click", (ev) => {
-              openMeta(name, `
-                <div class="disp-badge">TRANSIT ROUTE</div>
-                <div class="section-title">${labels[rt] || "Transit Route"}</div>
-                <div class="kv"><span class="k">Name</span><span class="v">${escapeHtml(name)}</span></div>
-                <div class="kv"><span class="k">Short name</span><span class="v">${escapeHtml(p.route_short_name || "—")}</span></div>
-                <div class="kv"><span class="k">Type</span><span class="v">${escapeHtml(p.route_type_text || labels[rt] || String(rt))}</span></div>
-                <div class="kv"><span class="k">Agency / NTD</span><span class="v">${escapeHtml(String(p.agency_id || ""))} · ${escapeHtml(String(p.ntd_id || ""))}</span></div>
-                <div class="kv"><span class="k">Route ID</span><span class="v">${escapeHtml(String(p.route_id || "—"))}</span></div>
-                <p class="disp-note">National Transit Map (BTS GTFS) — includes NJ Transit, SEPTA, PATCO, and agencies nationwide.</p>
-              `, ev.latlng);
-            });
-          },
-        }).addTo(target);
+        try {
+          L.geoJSON(f, {
+            style: { color, weight, opacity: 0.92 },
+            onEachFeature: (feat, layer) => {
+              const p = feat.properties || {};
+              const name = p.route_long_name || p.route_short_name || p.route_id || "Transit route";
+              layer.on("click", (ev) => {
+                openMeta(name, `
+                  <div class="disp-badge">TRANSIT ROUTE</div>
+                  <div class="section-title">${labels[rt] || "Transit Route"}</div>
+                  <div class="kv"><span class="k">Name</span><span class="v">${escapeHtml(name)}</span></div>
+                  <div class="kv"><span class="k">Short name</span><span class="v">${escapeHtml(p.route_short_name || "—")}</span></div>
+                  <div class="kv"><span class="k">Type</span><span class="v">${escapeHtml(p.route_type_text || labels[rt] || String(rt))}</span></div>
+                  <div class="kv"><span class="k">Agency / NTD</span><span class="v">${escapeHtml(String(p.agency_id || ""))} · ${escapeHtml(String(p.ntd_id || ""))}</span></div>
+                  <div class="kv"><span class="k">Route ID</span><span class="v">${escapeHtml(String(p.route_id || "—"))}</span></div>
+                  <p class="disp-note">National Transit Map (BTS GTFS) — NJ Transit, SEPTA, PATCO, agencies nationwide.</p>
+                `, ev.latlng);
+              });
+            },
+          }).addTo(target);
+        } catch (err) {
+          /* skip bad geometry */
+        }
       });
 
       const ag = [...agencies].slice(0, 8).join(", ");
       toast(`Transit: LR ${counts[0]} · subway ${counts[1]} · rail ${counts[2]} · bus ${counts[3]}${ag ? " · " + ag : ""}`, "success");
     } catch (e) {
-      console.error("transit routes", e);
-      toast("Transit routes load error — " + (e.message || "see console"), "error");
+      if (e && e.name === "AbortError") return;
+      console.warn("transit routes", e.message || e);
+      toast("Transit load issue — zoom in and retry", "error");
     }
   }
-
 
   async function loadPassengerLines() {
     if (!state.layers.passengerLines) state.layers.passengerLines = L.layerGroup();
