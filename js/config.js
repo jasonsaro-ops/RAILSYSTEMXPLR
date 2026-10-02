@@ -125,7 +125,7 @@ const CONFIG = {
   REFRESH_MS: 120000, // 2 minutes
 
   // Max features per query (ArcGIS limit often 1000–2000)
-  MAX_RECORDS: 2000,
+  MAX_RECORDS: 1000,
 
   // Railroad owner codes → display name & CSS class
   OWNERS: {

@@ -512,33 +512,25 @@
   }
 
   async function loadRailsForView() {
-    if (state.queryInFlight) return;
-    if (!state.map) return;
-    // Ensure rails group is on the map
-    if (state.layers.rails && !state.map.hasLayer(state.layers.rails)) {
-      state.layers.rails.addTo(state.map);
+    if (!state.map || !CONFIG.NARN_LINES) return;
+    const zoom = state.map.getZoom();
+    const st = state.activeState || null;
+    const bounds = state.map.getBounds();
+
+    // Nationwide envelope at very low zoom overloads ArcGIS — require zoom or state
+    if (!st && zoom < 5) {
+      toast("Zoom in or pick a state to load rail network", "error");
+      return;
     }
 
-    const bounds = state.map.getBounds();
-    const zoom = state.map.getZoom();
-    state.queryInFlight = true;
-
-    // PowerGrid-style: state focus = server-side STATEAB filter (like loading one region file)
-    // National low zoom = Class I system map with simplification
-    // Local zoom = full NARN in viewport
-    const st = state.activeState;
     const forceClass1 = !st && zoom < 7 && state.useClass1Only;
-    const endpoint = forceClass1 && CONFIG.CLASS1_LINES
-      ? CONFIG.CLASS1_LINES
-      : CONFIG.NARN_LINES;
+    const endpoint = (forceClass1 && CONFIG.CLASS1_LINES) ? CONFIG.CLASS1_LINES : CONFIG.NARN_LINES;
 
     let maxOffset = 0;
-    if (!st) {
-      if (zoom <= 5) maxOffset = 0.08;
-      else if (zoom <= 7) maxOffset = 0.03;
-      else if (zoom <= 9) maxOffset = 0.008;
-      else if (zoom <= 11) maxOffset = 0.002;
-    }
+    if (zoom <= 5) maxOffset = 0.05;
+    else if (zoom <= 7) maxOffset = 0.02;
+    else if (zoom <= 9) maxOffset = 0.008;
+    else if (zoom <= 11) maxOffset = 0.002;
 
     const geom = {
       xmin: bounds.getWest(),
@@ -547,139 +539,141 @@
       ymax: bounds.getNorth(),
       spatialReference: { wkid: 4326 },
     };
-    if (zoom <= 5 && !st) {
-      const pad = 2;
+    // Small pad only when zoomed in (avoid continental mega-queries)
+    if (zoom >= 8 && !st) {
+      const pad = (bounds.getEast() - bounds.getWest()) * 0.02;
       geom.xmin -= pad; geom.xmax += pad;
       geom.ymin -= pad; geom.ymax += pad;
     }
 
-    // State filter — equivalent to loading a per-state "file" from the server
     let where = "1=1";
     if (st) {
       const safe = String(st).replace(/[^A-Za-z]/g, "").toUpperCase().slice(0, 2);
       if (safe.length === 2) where = "STATEAB='" + safe + "'";
     }
 
+    // Explicit fields — outFields=* is heavier and occasionally fails on this service
+    const outFields = [
+      "OBJECTID", "FRAARCID", "RROWNER1", "RROWNER2", "RROWNER3",
+      "TRKRGHTS1", "TRKRGHTS2", "TRKRGHTS3", "TRKRGHTS4",
+      "PASSNGR", "STRACNET", "TRACKS", "SUBDIV", "MILES", "STATEAB", "YARDNAME",
+    ].join(",");
+
+    const pageSize = Math.min(1000, CONFIG.MAX_RECORDS || 1000);
+    const maxPages = (st || zoom >= 9) ? 3 : (zoom >= 7 ? 2 : 1);
+
+    async function queryPage(page, opts) {
+      const params = new URLSearchParams({
+        f: "geojson",
+        where: where,
+        outFields: opts.outFields || outFields,
+        geometry: JSON.stringify(geom),
+        geometryType: "esriGeometryEnvelope",
+        inSR: "4326",
+        spatialRel: "esriSpatialRelIntersects",
+        outSR: "4326",
+        resultRecordCount: String(pageSize),
+        resultOffset: String(page * pageSize),
+      });
+      if (opts.useOffset === false) params.delete("resultOffset");
+      if (opts.maxOffset != null && opts.maxOffset > 0) {
+        params.set("maxAllowableOffset", String(opts.maxOffset));
+      }
+      const res = await fetch(endpoint + "/query?" + params.toString());
+      if (!res.ok) {
+        const err = new Error("NARN HTTP " + res.status);
+        err.status = res.status;
+        throw err;
+      }
+      const text = await res.text();
+      if (!text) throw new Error("Empty NARN response");
+      let geojson;
+      try { geojson = JSON.parse(text); } catch (e) {
+        throw new Error("Invalid NARN JSON (timeout or truncate)");
+      }
+      if (geojson.error) {
+        const msg = geojson.error.message || geojson.error.details || JSON.stringify(geojson.error);
+        throw new Error(String(msg));
+      }
+      return geojson;
+    }
+
     try {
-      const pages = (st || zoom >= 8) ? 3 : 1;
       let allFeatures = [];
+      let useOffset = true;
+      let offset = maxOffset;
 
-      for (let page = 0; page < pages; page++) {
-        const params = new URLSearchParams({
-          f: "geojson",
-          where: where,
-          outFields: "*",
-          geometry: JSON.stringify(geom),
-          geometryType: "esriGeometryEnvelope",
-          inSR: "4326",
-          spatialRel: "esriSpatialRelIntersects",
-          outSR: "4326",
-          resultRecordCount: String(CONFIG.MAX_RECORDS || 2000),
-          resultOffset: String(page * (CONFIG.MAX_RECORDS || 2000)),
-        });
-        if (maxOffset > 0) params.set("maxAllowableOffset", String(maxOffset));
-
-        const res = await fetch(endpoint + "/query?" + params.toString());
-        if (!res.ok) throw new Error("NARN query failed: " + res.status);
-        const geojson = await res.json();
-        if (geojson.error) throw new Error(geojson.error.message || "ArcGIS error");
-        if (!geojson.features || !geojson.features.length) break;
-        allFeatures = allFeatures.concat(geojson.features);
-        if (geojson.features.length < (CONFIG.MAX_RECORDS || 2000)) break;
+      for (let page = 0; page < maxPages; page++) {
+        let geojson;
+        try {
+          geojson = await queryPage(page, { maxOffset: offset, useOffset: page === 0 ? true : useOffset, outFields });
+        } catch (e1) {
+          // Retry once: no simplify, no pagination offset, leaner fields
+          if (page === 0) {
+            console.warn("NARN retry after", e1.message || e1);
+            try {
+              geojson = await queryPage(0, {
+                maxOffset: 0,
+                useOffset: false,
+                outFields: "OBJECTID,FRAARCID,RROWNER1,RROWNER2,TRKRGHTS1,PASSNGR,STRACNET,TRACKS,SUBDIV,STATEAB,MILES",
+              });
+              useOffset = false;
+              offset = 0;
+            } catch (e2) {
+              throw e2;
+            }
+          } else {
+            console.warn("NARN page", page, e1.message || e1);
+            break;
+          }
+        }
+        const feats = geojson.features || [];
+        if (!feats.length) break;
+        allFeatures = allFeatures.concat(feats);
+        if (feats.length < pageSize) break;
+        if (!useOffset && page > 0) break;
       }
 
       if (!allFeatures.length) {
-        toast(st ? ("No rail segments in " + st) : "No rail segments in view", "error");
+        toast(st ? ("No rail segments in " + st) : "No rail segments in view — zoom in", "error");
         return;
       }
 
       let added = 0;
       allFeatures.forEach((feature) => {
+        if (!feature || !feature.geometry) return;
         const oid = feature.properties?.OBJECTID ?? feature.properties?.FRAARCID;
         if (oid == null) return;
         const key = (st ? st + ":" : "") + String(oid);
-        if (state.railCache.has(key)) return;
+        if (state.railCache && state.railCache.has(key)) return;
 
         const cls = classifyOwner(feature.properties);
-        const layer = L.geoJSON(feature, {
-          style: () => styleForOwner(cls, feature.properties, zoom),
-          onEachFeature: (f, lyr) => {
-            lyr._railProps = f.properties;
-            lyr.feature = f;
-            lyr.on("click", (ev) => showRailMeta(f.properties, lyr.getBounds?.(), ev.latlng));
-            lyr.on("mouseover", () => lyr.setStyle({ weight: Math.min(6, (lyr.options.weight || 2) + 2), opacity: 1 }));
-            lyr.on("mouseout", () => {
-              const c = classifyOwner(f.properties);
-              lyr.setStyle(styleForOwner(c, f.properties, zoom));
-            });
-          },
-        });
-        layer.addTo(state.layers.rails);
-        state.railCache.set(key, layer);
-        added++;
+        try {
+          const layer = L.geoJSON(feature, {
+            style: () => styleForOwner(cls, feature.properties, zoom),
+            onEachFeature: (f, lyr) => {
+              lyr._railProps = f.properties;
+              lyr._ownerCls = cls;
+              lyr.on("click", (ev) => showRailMeta(f.properties, lyr.getBounds?.(), ev.latlng));
+            },
+          });
+          if (state.railCache) state.railCache.set(key, layer);
+          // Add to owner layer group if present
+          const lg = state.layers && (state.layers[cls] || state.layers.other);
+          if (lg) layer.addTo(lg);
+          else if (state.layers && state.layers.other) layer.addTo(state.layers.other);
+          added++;
+        } catch (ge) {
+          /* skip bad geometry */
+        }
       });
 
       applyRailVisibility();
-      const mode = st
-        ? ("State " + st)
-        : (forceClass1 ? "Class I system map" : "Full NARN");
-      toast(mode + ": +" + added + " new / " + state.railCache.size + " cached", "success");
-    } catch (err) {
-      console.error(err);
-      toast("Rail network load error — " + (err.message || "see console"), "error");
-    } finally {
-      state.queryInFlight = false;
+      if (added) toast("Rail network +" + added + " segments", "success");
+    } catch (e) {
+      console.error("loadRailsForView", e);
+      toast("Rail network load error — " + (e.message || "ArcGIS") + " (zoom in / retry)", "error");
     }
-  }
-
-  function getEnabledOwners() {
-    const s = new Set();
-    document.querySelectorAll("input[data-layer]").forEach((el) => {
-      if (el.checked && ["bnsf", "up", "csx", "ns", "cn", "cpkc", "amtrak", "other"].includes(el.dataset.layer)) {
-        s.add(el.dataset.layer);
-      }
-    });
-    return s;
-  }
-
-  // ---------- Trains (Amtraker) ----------
-  async function fetchAmtrakerTrains() {
-    const urls = [CONFIG.AMTRAKER_TRAINS, CONFIG.AMTRAKER_TRAINS_ALT].filter(Boolean);
-    let lastErr = null;
-    for (const url of urls) {
-      try {
-        const res = await fetch(url, { cache: "no-store" });
-        if (!res.ok) throw new Error("HTTP " + res.status);
-        return await res.json();
-      } catch (e) {
-        lastErr = e;
-        console.warn("Amtraker host failed", url, e);
-      }
-    }
-    throw lastErr || new Error("All Amtraker hosts failed");
-  }
-
-  async function mergePriorityTrains(data) {
-    // Auto Train (#52 Sanford→Lorton, #53 Lorton→Sanford) is often missing from bulk feed
-    const nums = CONFIG.PRIORITY_TRAIN_NUMS || ["52", "53"];
-    const base = CONFIG.AMTRAKER_TRAINS || "https://api.amtraker.com/v3/trains";
-    await Promise.all(
-      nums.map(async (num) => {
-        if (data[num] && Array.isArray(data[num]) && data[num].length) return;
-        try {
-          const res = await fetch(base + "/" + num, { cache: "no-store" });
-          if (!res.ok) return;
-          const j = await res.json();
-          // endpoint may return [] or { "52": [...] }
-          let arr = Array.isArray(j) ? j : j[num];
-          if (!arr && j && typeof j === "object") arr = Object.values(j).flat();
-          if (Array.isArray(arr) && arr.length) data[num] = arr;
-        } catch (e) {
-          console.warn("priority train", num, e);
-        }
-      })
-    );
-    return data;
   }
 
   async function loadTrains() {
