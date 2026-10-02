@@ -1695,8 +1695,9 @@
     const money = (v) => (v == null || v === "" ? "—" : "$" + Number(v).toLocaleString());
     const dateStr = String(r.date || "").slice(0, 10);
     const timeStr = r.time != null ? String(r.time) : "";
-    const pdf = r.url
-      ? `<p style="margin:0.35rem 0"><a class="ext-link" href="${escapeHtml(r.url)}" target="_blank" rel="noopener">Official FRA Form 54 / record PDF ↗</a></p>`
+    const recordUrl = safeUrl(r.url);
+    const pdf = recordUrl
+      ? `<p style="margin:0.35rem 0"><a class="ext-link" href="${escapeHtml(recordUrl)}" target="_blank" rel="noopener">Official FRA Form 54 / record ↗</a></p>`
       : "";
     const narrative = (r.narrative || "").toString().trim();
     const ntsbCarol = "https://data.ntsb.gov/carol-main-public/basic-search";
@@ -1708,7 +1709,7 @@
     const extra = Object.keys(r || {})
       .filter((k) => !skip.has(k) && r[k] != null && r[k] !== "")
       .sort()
-      .map((k) => `<div class="kv"><span class="k">${escapeHtml(k)}</span><span class="v">${escapeHtml(String(r[k]))}</span></div>`)
+      .map((k) => `<div class="kv"><span class="k">${escapeHtml(k)}</span><span class="v">${escapeHtml(formatMetaValue(r[k]))}</span></div>`)
       .join("");
 
     const html = `
@@ -2470,6 +2471,31 @@ function initSearch() {
     t.className = "toast " + (type || "");
     clearTimeout(t._timer);
     t._timer = setTimeout(() => t.classList.add("hidden"), 3200);
+  }
+
+  function formatMetaValue(v) {
+    if (v == null || v === "") return "—";
+    if (typeof v === "object") {
+      const u = safeUrl(v);
+      if (u) return u;
+      try { return JSON.stringify(v); } catch (e) { return String(v); }
+    }
+    return String(v);
+  }
+
+  function safeUrl(v) {
+    if (v == null || v === "") return "";
+    if (typeof v === "string") {
+      const s = v.trim();
+      if (/^https?:\/\//i.test(s)) return s;
+      return "";
+    }
+    if (typeof v === "object") {
+      // Socrata often returns { url: "https://..." } for link columns
+      if (typeof v.url === "string" && /^https?:\/\//i.test(v.url)) return v.url.trim();
+      if (typeof v.href === "string" && /^https?:\/\//i.test(v.href)) return v.href.trim();
+    }
+    return "";
   }
 
   function escapeHtml(s) {
