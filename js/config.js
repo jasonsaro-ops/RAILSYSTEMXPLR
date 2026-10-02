@@ -15,6 +15,11 @@ const CONFIG = {
   AMTRAK_ROUTES: "https://services.arcgis.com/xOi1kZaI0eWDREZv/arcgis/rest/services/NTAD_Amtrak_Routes/FeatureServer/0",
   FRA_DISTRICTS: "https://services.arcgis.com/xOi1kZaI0eWDREZv/arcgis/rest/services/NTAD_DOT_FRA_Districts/FeatureServer/1",
   // OpenStreetMap / OpenRailwayMap attribute query (Overpass) — same source ORM tiles use
+  // FRA Form 54 Rail Equipment Accident/Incident (Socrata) — includes derailments with lat/lon
+  // https://data.transportation.gov/Railroads/Rail-Equipment-Accident-Incident-Data-Form-54-/85tf-25kj
+  FRA_FORM54: "https://data.transportation.gov/resource/85tf-25kj.json",
+  // "Current" = on/after this ISO date; older = historical layer
+  DERAIL_CURRENT_SINCE: "2024-01-01T00:00:00.000",
   OVERPASS_URL: "https://overpass-api.de/api/interpreter",
   PASSENGER_RAIL_LINES: "https://services.arcgis.com/xOi1kZaI0eWDREZv/arcgis/rest/services/NTAD_North_American_Rail_Network_Lines_Passenger_Rail/FeatureServer/0",
 

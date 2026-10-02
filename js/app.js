@@ -27,6 +27,8 @@
       passengerLines: L.layerGroup(),
       amtrakRoutes: L.layerGroup(),
       fraDistricts: L.layerGroup(),
+      derailmentsCurrent: L.layerGroup(),
+      derailmentsHistorical: L.layerGroup(),
     },
     useClass1Only: false,
     activeState: null, // two-letter state focus (PowerGrid-style region)
@@ -104,6 +106,10 @@
         if (pl && pl.checked) loadPassengerLines();
         if (isLayerChecked("amtrakRoutes")) loadAmtrakRoutes();
         if (isLayerChecked("fraDistricts")) loadFraDistricts();
+        if (isLayerChecked("derailmentsCurrent") || isLayerChecked("derailmentsHistorical")) {
+          clearTimeout(state._derailTimer);
+          state._derailTimer = setTimeout(loadDerailments, 500);
+        }
       }, 500);
     });
 
@@ -366,6 +372,13 @@
             state.layers.fraDistricts.addTo(state.map);
             loadFraDistricts();
           } else state.map.removeLayer(state.layers.fraDistricts);
+        } else if (key === "derailmentsCurrent" || key === "derailmentsHistorical") {
+          if (el.checked) {
+            if (state.layers[key]) state.layers[key].addTo(state.map);
+            loadDerailments();
+          } else if (state.layers[key]) {
+            state.map.removeLayer(state.layers[key]);
+          }
         } else {
           applyRailVisibility();
         }
@@ -1585,6 +1598,204 @@
       ${rows}
       <p class="disp-note">Same OpenStreetMap data OpenRailwayMap renders. Not FRA authoritative ownership.</p>`;
   }
+
+
+  function derailmentIcon(isCurrent) {
+    const color = isCurrent ? "#ff4d6a" : "#ffb020";
+    return L.divIcon({
+      className: "rsx-marker-wrap",
+      html: `<div style="width:14px;height:14px;border-radius:50%;background:${color};border:2px solid #0a0e14;box-shadow:0 0 0 2px ${color}55,0 2px 6px rgba(0,0,0,0.5)"></div>`,
+      iconSize: [14, 14],
+      iconAnchor: [7, 7],
+    });
+  }
+
+  async function loadDerailments() {
+    const wantCur = isLayerChecked("derailmentsCurrent");
+    const wantHist = isLayerChecked("derailmentsHistorical");
+    if (!wantCur && !wantHist) return;
+    if (!CONFIG.FRA_FORM54 || !state.map) return;
+    if (state.map.getZoom() < 6) {
+      toast("Zoom in to load derailments", "error");
+      return;
+    }
+
+    if (!state.layers.derailmentsCurrent) state.layers.derailmentsCurrent = L.layerGroup();
+    if (!state.layers.derailmentsHistorical) state.layers.derailmentsHistorical = L.layerGroup();
+    if (wantCur && !state.map.hasLayer(state.layers.derailmentsCurrent)) {
+      state.layers.derailmentsCurrent.addTo(state.map);
+    }
+    if (wantHist && !state.map.hasLayer(state.layers.derailmentsHistorical)) {
+      state.layers.derailmentsHistorical.addTo(state.map);
+    }
+
+    const b = state.map.getBounds();
+    const west = b.getWest(), south = b.getSouth(), east = b.getEast(), north = b.getNorth();
+    const since = CONFIG.DERAIL_CURRENT_SINCE || "2024-01-01T00:00:00.000";
+
+    // Build one or two queries (current vs historical)
+    const queries = [];
+    if (wantCur) {
+      queries.push({
+        label: "current",
+        layer: state.layers.derailmentsCurrent,
+        where: `accidenttype='Derailment' AND latitude IS NOT NULL AND longitude IS NOT NULL AND latitude between ${south} and ${north} AND longitude between ${west} and ${east} AND date >= '${since}'`,
+        isCurrent: true,
+      });
+    }
+    if (wantHist) {
+      queries.push({
+        label: "historical",
+        layer: state.layers.derailmentsHistorical,
+        where: `accidenttype='Derailment' AND latitude IS NOT NULL AND longitude IS NOT NULL AND latitude between ${south} and ${north} AND longitude between ${west} and ${east} AND date < '${since}'`,
+        isCurrent: false,
+      });
+    }
+
+    if (state._derailAbort) {
+      try { state._derailAbort.abort(); } catch (e) {}
+    }
+    state._derailAbort = typeof AbortController !== "undefined" ? new AbortController() : null;
+    const signal = state._derailAbort ? state._derailAbort.signal : undefined;
+
+    let total = 0;
+    for (const q of queries) {
+      try {
+        const params = new URLSearchParams({
+          "$where": q.where,
+          // Full public Form 54 columns used in dispatcher-style meta (Socrata allows omitting $select for all; limit size with explicit list)
+          "$select": "date,time,day,year,accidenttype,accident_type_code,accidentnumber,incidentkey,reportkey,url,narrative,reportingrailroadname,reportingrailroadcode,reporting_parent_railroad_name,reporting_railroad_class,class,maintenancerailroadname,maintenancerailroadcode,latitude,longitude,stateabbr,statename,countyname,station,subdivision,milepost,district,tracktype,trackclass,trackname,trackdensity,signalization,methodofoperation,trainnumber,trainspeed,maximumspeed,recordedestimatedspeed,traindirection,equipmenttype,equipmentattended,grosstonnage,primaryaccidentcause,primaryaccidentcausecode,contributingaccidentcause,accidentcause,accidentcausecode,totaldamagecost,equipmentdamagecost,trackdamagecost,hazmatcars,hazmatcarsdamaged,hazmatreleasedcars,personsevacuated,totalkilledform54,totalinjuredform54,totalpersonskilled,totalpersonsinjured,railroademployeeskilled,railroademployeesinjured,passengerskilled,passengersinjured,otherskilled,othersinjured,derailedheadendlocomotives,derailedloadedfreightcars,derailedemptyfreightcars,derailedloadedpassengercars,headendlocomotives,loadedfreightcars,emptyfreightcars,loadedpassengercars,weathercondition,visibility,temperature,positivealcoholtests,positivedrugtests,remotecontrollocomotive,passengerstransported",
+          "$order": "date DESC",
+          "$limit": "500",
+        });
+        const res = await fetch(CONFIG.FRA_FORM54 + "?" + params.toString(), { signal });
+        if (!res.ok) {
+          console.warn("derailments", q.label, res.status);
+          continue;
+        }
+        const rows = await res.json();
+        if (!Array.isArray(rows)) continue;
+        q.layer.clearLayers();
+        const seen = new Set();
+        rows.forEach((r) => {
+          const lat = Number(r.latitude), lon = Number(r.longitude);
+          if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+          const key = (r.accidentnumber || "") + ":" + (r.date || "") + ":" + lat + ":" + lon;
+          if (seen.has(key)) return;
+          seen.add(key);
+          const m = L.marker([lat, lon], { icon: derailmentIcon(q.isCurrent) });
+          m.on("click", (ev) => showDerailmentMeta(r, q.isCurrent, ev.latlng));
+          m.addTo(q.layer);
+          total++;
+        });
+      } catch (e) {
+        if (e && e.name === "AbortError") return;
+        console.warn("derailments load", e.message || e);
+      }
+    }
+    if (total) toast("Derailments in view: " + total, "success");
+    else toast("No derailments in view for selected layers", "error");
+  }
+
+  function showDerailmentMeta(r, isCurrent, latlng) {
+    const money = (v) => (v == null || v === "" ? "—" : "$" + Number(v).toLocaleString());
+    const dateStr = String(r.date || "").slice(0, 10);
+    const timeStr = r.time != null ? String(r.time) : "";
+    const pdf = r.url
+      ? `<p style="margin:0.35rem 0"><a class="ext-link" href="${escapeHtml(r.url)}" target="_blank" rel="noopener">Official FRA Form 54 / record PDF ↗</a></p>`
+      : "";
+    const narrative = (r.narrative || "").toString().trim();
+    const ntsbCarol = "https://data.ntsb.gov/carol-main-public/basic-search";
+    const ntsbDocket = "https://data.ntsb.gov/Docket/Forms/searchdocket";
+    // Deep-ish CAROL help: user can search mode Railroad + date/city (no stable public REST for auto-match)
+    const ntsbHint = encodeURIComponent([r.station, r.countyname, r.stateabbr, dateStr].filter(Boolean).join(" "));
+
+    const skip = new Set(["latitude", "longitude", "narrative", "url", "location"]);
+    const extra = Object.keys(r || {})
+      .filter((k) => !skip.has(k) && r[k] != null && r[k] !== "")
+      .sort()
+      .map((k) => `<div class="kv"><span class="k">${escapeHtml(k)}</span><span class="v">${escapeHtml(String(r[k]))}</span></div>`)
+      .join("");
+
+    const html = `
+      <div class="disp-badge">${isCurrent ? "CURRENT" : "HISTORICAL"} DERAILMENT · FRA FORM 54</div>
+
+      <div class="section-title">Event</div>
+      <div class="kv"><span class="k">Date / time</span><span class="v">${escapeHtml(dateStr)}${timeStr ? " · " + escapeHtml(timeStr) : ""}</span></div>
+      <div class="kv"><span class="k">Type</span><span class="v">${escapeHtml(r.accidenttype || "Derailment")} (${escapeHtml(String(r.accident_type_code || ""))})</span></div>
+      <div class="kv"><span class="k">Accident number</span><span class="v">${escapeHtml(r.accidentnumber || "—")}</span></div>
+      <div class="kv"><span class="k">Incident / report key</span><span class="v">${escapeHtml([r.incidentkey, r.reportkey].filter(Boolean).join(" · ") || "—")}</span></div>
+
+      <div class="section-title">Railroad</div>
+      <div class="kv"><span class="k">Reporting railroad</span><span class="v">${escapeHtml(r.reportingrailroadname || "—")}</span></div>
+      <div class="kv"><span class="k">Reporting code / class</span><span class="v">${escapeHtml([r.reportingrailroadcode, r.reporting_railroad_class || r.class].filter(Boolean).join(" · ") || "—")}</span></div>
+      <div class="kv"><span class="k">Parent railroad</span><span class="v">${escapeHtml(r.reporting_parent_railroad_name || "—")}</span></div>
+      <div class="kv"><span class="k">Maintenance railroad</span><span class="v">${escapeHtml(r.maintenancerailroadname || r.maintenancerailroadcode || "—")}</span></div>
+
+      <div class="section-title">Location</div>
+      <div class="kv"><span class="k">Station / city</span><span class="v">${escapeHtml(r.station || "—")}</span></div>
+      <div class="kv"><span class="k">County / State</span><span class="v">${escapeHtml([r.countyname, r.stateabbr || r.statename].filter(Boolean).join(", ") || "—")}</span></div>
+      <div class="kv"><span class="k">Subdivision / milepost</span><span class="v">${escapeHtml([r.subdivision, r.milepost != null ? "MP " + r.milepost : null].filter(Boolean).join(" · ") || "—")}</span></div>
+      <div class="kv"><span class="k">District</span><span class="v">${escapeHtml(String(r.district ?? "—"))}</span></div>
+      <div class="kv"><span class="k">Coordinates</span><span class="v">${escapeHtml(String(r.latitude))}, ${escapeHtml(String(r.longitude))}</span></div>
+
+      <div class="section-title">Track & operations</div>
+      <div class="kv"><span class="k">Track type / class / name</span><span class="v">${escapeHtml([r.tracktype, r.trackclass, r.trackname].filter(Boolean).join(" · ") || "—")}</span></div>
+      <div class="kv"><span class="k">Track density</span><span class="v">${escapeHtml(String(r.trackdensity ?? "—"))}</span></div>
+      <div class="kv"><span class="k">Signalization</span><span class="v">${escapeHtml(r.signalization || "—")}</span></div>
+      <div class="kv"><span class="k">Method of operation</span><span class="v">${escapeHtml(r.methodofoperation || "—")}</span></div>
+
+      <div class="section-title">Train / equipment</div>
+      <div class="kv"><span class="k">Train number</span><span class="v">${escapeHtml(String(r.trainnumber || "—"))}</span></div>
+      <div class="kv"><span class="k">Speed (report / max / est.)</span><span class="v">${escapeHtml([r.trainspeed, r.maximumspeed, r.recordedestimatedspeed].map((x) => x != null ? x + " mph" : null).filter(Boolean).join(" · ") || "—")}</span></div>
+      <div class="kv"><span class="k">Direction</span><span class="v">${escapeHtml(r.traindirection || "—")}</span></div>
+      <div class="kv"><span class="k">Equipment type</span><span class="v">${escapeHtml(r.equipmenttype || "—")}</span></div>
+      <div class="kv"><span class="k">Gross tonnage</span><span class="v">${escapeHtml(String(r.grosstonnage ?? "—"))}</span></div>
+      <div class="kv"><span class="k">Locomotives (head-end)</span><span class="v">${escapeHtml(String(r.headendlocomotives ?? "—"))}</span></div>
+      <div class="kv"><span class="k">Cars loaded / empty freight</span><span class="v">${escapeHtml([r.loadedfreightcars, r.emptyfreightcars].join(" / "))}</span></div>
+      <div class="kv"><span class="k">Derailed locos / freight cars</span><span class="v">${escapeHtml([r.derailedheadendlocomotives, r.derailedloadedfreightcars, r.derailedemptyfreightcars].map((x) => x ?? "—").join(" · "))}</span></div>
+      <div class="kv"><span class="k">Remote control</span><span class="v">${escapeHtml(r.remotecontrollocomotive || "—")}</span></div>
+
+      <div class="section-title">Cause</div>
+      <div class="kv"><span class="k">Primary cause</span><span class="v">${escapeHtml(r.primaryaccidentcause || "—")}</span></div>
+      <div class="kv"><span class="k">Primary cause code</span><span class="v">${escapeHtml(String(r.primaryaccidentcausecode || "—"))}</span></div>
+      <div class="kv"><span class="k">Contributing / accident cause</span><span class="v">${escapeHtml([r.contributingaccidentcause, r.accidentcause].filter(Boolean).join(" · ") || "—")}</span></div>
+
+      <div class="section-title">Damage & hazmat</div>
+      <div class="kv"><span class="k">Total damage</span><span class="v">${money(r.totaldamagecost)}</span></div>
+      <div class="kv"><span class="k">Equipment / track damage</span><span class="v">${money(r.equipmentdamagecost)} / ${money(r.trackdamagecost)}</span></div>
+      <div class="kv"><span class="k">Hazmat cars / damaged / released</span><span class="v">${escapeHtml([r.hazmatcars, r.hazmatcarsdamaged, r.hazmatreleasedcars].map((x) => x ?? "—").join(" · "))}</span></div>
+      <div class="kv"><span class="k">Persons evacuated</span><span class="v">${escapeHtml(String(r.personsevacuated ?? "—"))}</span></div>
+
+      <div class="section-title">Casualties (Form 54)</div>
+      <div class="kv"><span class="k">Killed / injured (Form 54)</span><span class="v">${escapeHtml(String(r.totalkilledform54 ?? "—"))} / ${escapeHtml(String(r.totalinjuredform54 ?? "—"))}</span></div>
+      <div class="kv"><span class="k">Total persons killed / injured</span><span class="v">${escapeHtml(String(r.totalpersonskilled ?? "—"))} / ${escapeHtml(String(r.totalpersonsinjured ?? "—"))}</span></div>
+      <div class="kv"><span class="k">Employees killed / injured</span><span class="v">${escapeHtml(String(r.railroademployeeskilled ?? "—"))} / ${escapeHtml(String(r.railroademployeesinjured ?? "—"))}</span></div>
+      <div class="kv"><span class="k">Passengers killed / injured</span><span class="v">${escapeHtml(String(r.passengerskilled ?? "—"))} / ${escapeHtml(String(r.passengersinjured ?? "—"))}</span></div>
+      <div class="kv"><span class="k">Others killed / injured</span><span class="v">${escapeHtml(String(r.otherskilled ?? "—"))} / ${escapeHtml(String(r.othersinjured ?? "—"))}</span></div>
+
+      <div class="section-title">Environment</div>
+      <div class="kv"><span class="k">Weather / visibility / temp</span><span class="v">${escapeHtml([r.weathercondition, r.visibility, r.temperature != null ? r.temperature + "°" : null].filter(Boolean).join(" · ") || "—")}</span></div>
+      <div class="kv"><span class="k">Alcohol / drug positives</span><span class="v">${escapeHtml(String(r.positivealcoholtests ?? "—"))} / ${escapeHtml(String(r.positivedrugtests ?? "—"))}</span></div>
+
+      ${narrative ? `<div class="section-title">Narrative (FRA)</div><p style="font-size:0.78rem;line-height:1.45;color:var(--text);white-space:pre-wrap">${escapeHtml(narrative)}</p>` : ""}
+      ${pdf}
+
+      <div class="section-title">NTSB investigations</div>
+      <p class="disp-note" style="margin-bottom:0.4rem">NTSB investigates only a <strong>subset</strong> of rail accidents (major/selected cases), not every Form 54 derailment. There is no public lat/lon API; use CAROL / dockets with date and place:</p>
+      <p style="margin:0.25rem 0;font-size:0.78rem">
+        <a class="ext-link" href="${ntsbCarol}" target="_blank" rel="noopener">NTSB CAROL investigation search ↗</a><br/>
+        <a class="ext-link" href="${ntsbDocket}" target="_blank" rel="noopener">NTSB accident docket search ↗</a><br/>
+        <span style="color:var(--text-muted)">Suggested search: Railroad · ${escapeHtml(dateStr)} · ${escapeHtml([r.station, r.stateabbr].filter(Boolean).join(", ") || "location")}</span>
+      </p>
+
+      <div class="section-title">All returned Form 54 fields</div>
+      ${extra || "<em>No additional fields</em>"}
+      <p class="disp-note">Primary source: FRA Form 6180.54 via data.transportation.gov (public). Dataset updates on federal reporting schedules; not a live emergency feed.</p>
+    `;
+    openMeta((isCurrent ? "Derailment · " : "Historical derailment · ") + (r.reportingrailroadname || r.accidentnumber || ""), html, latlng);
+  }
+
 
   async function showRailMeta(props, bounds, latlng) {
     const owner = classifyOwner(props);

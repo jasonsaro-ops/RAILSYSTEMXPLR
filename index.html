@@ -77,7 +77,17 @@
             <label class="radio-row"><input type="radio" name="basemap" value="satellite" /> Satellite</label>
           </div>
 
+          
           <div class="layer-group">
+            <h3>Safety · Derailments</h3>
+            <p class="note" style="font-size:0.68rem;margin:0 0 0.35rem">FRA Form 54 (Rail Equipment Accident/Incident). Reportable derailments with coordinates. Not real-time police/news — federal railroad reporting.</p>
+            <label class="check-row"><input type="checkbox" data-layer="derailmentsCurrent" /> <span style="color:#ff4d6a">●</span> Current derailments (since 2024)</label>
+            <label class="check-row"><input type="checkbox" data-layer="derailmentsHistorical" /> <span style="color:#ffb020">●</span> Historical derailments (pre-2024)</label>
+            <a class="ext-link" href="https://data.transportation.gov/Railroads/Rail-Equipment-Accident-Incident-Data-Form-54-/85tf-25kj" target="_blank" rel="noopener">FRA Form 54 dataset ↗</a>
+            <a class="ext-link" href="https://data.ntsb.gov/carol-main-public/basic-search" target="_blank" rel="noopener">NTSB CAROL (investigations) ↗</a>
+            <a class="ext-link" href="https://data.ntsb.gov/Docket/Forms/searchdocket" target="_blank" rel="noopener">NTSB dockets ↗</a>
+          </div>
+<div class="layer-group">
             <h3>OpenRailwayMap <span class="hint">OSM detail</span></h3>
             <p class="note" style="font-size:0.68rem;margin:0 0 0.4rem">Nationwide OSM railway rendering (bridges, tunnels, main/yard/spur, speeds, signals, electrification, gauge). Toggle one style. Zoom in for full detail.</p>
             <label class="check-row"><input type="radio" name="orm" value="off" checked /> Off</label>
